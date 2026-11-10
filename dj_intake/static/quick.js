@@ -65,6 +65,7 @@ $('#quick-settings').onclick = async () => {
   const panel = $('#quick-preferences');
   panel.hidden = !panel.hidden;
   $('#quick-form').hidden = !panel.hidden;
+  $('.quick-listen').hidden = !panel.hidden;
   $('#quick-settings').setAttribute('aria-expanded', String(!panel.hidden));
   if (!panel.hidden) {
     try { $('#quick-path').textContent = (await folderApi('settings','GET')).output_dir; }
@@ -82,4 +83,43 @@ $('#quick-pick').onclick = async () => {
     }
   } catch (error) { $('#folder-status').textContent = error.message; }
   finally { $('#quick-pick').disabled = false; resize(); }
+};
+
+
+$('#quick-identify').onclick = async () => {
+  const trigger = $('#quick-identify');
+  const status = $('#quick-recognition-status');
+  trigger.disabled = true;
+  trigger.classList.add('listening');
+  status.textContent = 'Listening with Shazam…';
+  resize();
+  try {
+    const match = await folderApi('identify', 'POST');
+    status.textContent = 'Saved to Saved finds: ' + match.name;
+  } catch (error) {
+    status.textContent = error.message;
+  } finally {
+    trigger.disabled = false;
+    trigger.classList.remove('listening');
+    resize();
+  }
+};
+
+$('#quick-recognition-setup').onclick = async () => {
+  const trigger = $('#quick-recognition-setup');
+  const status = $('#quick-recognition-status');
+  trigger.disabled = true;
+  status.textContent = 'Opening Apple Shortcuts…';
+  resize();
+  try {
+    const { installed } = await folderApi('recognition/setup', 'POST');
+    status.textContent = installed
+      ? 'Shortcut is installed. Play a song and click Identify song.'
+      : 'Click Add Shortcut in Shortcuts, then come back and click Identify song.';
+  } catch (error) {
+    status.textContent = error.message;
+  } finally {
+    trigger.disabled = false;
+    resize();
+  }
 };

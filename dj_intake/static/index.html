@@ -1,15 +1,113 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="intake-token" content="__TOKEN__"><title>DJ Intake</title><link rel="icon" type="image/png" href="/app-icon.png"><link rel="stylesheet" href="/style.css"><script defer src="/app.js"></script></head>
-<body><div class="shell">
-<aside><a class="brand" href="/"><span class="logo">◉</span> DJ INTAKE</a><div class="eyebrow">YOUR NEXT SET STARTS HERE</div><nav><button data-tab="queue" class="nav active"><span>⌘</span> Queue <b id="count-queue">0</b></button><button data-tab="successful" class="nav"><span>✓</span> Downloads <b id="count-successful">0</b></button><button data-tab="failed" class="nav"><span>↗</span> Failed <b id="count-failed">0</b></button></nav><div class="side-bottom"><button id="settings-open" class="text-button">⚙ &nbsp; Preferences</button><div class="local"><i></i> LOCAL ON YOUR MAC</div><p>Your library. Your workflow.</p></div></aside>
-<main><header><div class="breadcrumb">LIBRARY WORKSPACE <span>/</span> <strong id="crumb">QUEUE</strong></div><a class="button subtle" href="https://github.com/clement55688/dj-intake-app/issues" target="_blank" rel="noopener noreferrer">Feedback ↗</a><button id="folder" class="button subtle">Open staging folder ↗</button></header>
-<section class="intro"><div class="eyebrow accent">LESS FILE ADMIN. MORE MUSIC.</div><h1>Your next set starts <em>here.</em></h1><p>Drop a link or find a song. We’ll take care of the files.</p></section>
-<section class="composer"><form id="add-form"><label for="input">ADD TO YOUR LIBRARY</label><textarea id="input" rows="2" placeholder="Paste a track URL or type Artist — Song title" required></textarea><label class="trim-toggle"><input id="trim-enabled" type="checkbox"> Trim to timestamps <span>Optional</span></label><div class="clip-inputs" id="clip-fields" hidden><div><label for="clip-start">START</label><input id="clip-start" type="text" inputmode="text" placeholder="00:00" autocomplete="off"></div><span class="clip-arrow">→</span><div><label for="clip-end">END</label><input id="clip-end" type="text" inputmode="text" placeholder="00:00" autocomplete="off"></div><p>Download just this section.<br>MM:SS or HH:MM:SS.</p></div><div class="composer-bottom"><span>YouTube · SoundCloud · Bandcamp · Spotify lookup</span><button class="button primary" type="submit" id="add">Add to queue <span>↗</span></button></div></form><div class="composer-note">One track per line. YouTube links with playlist parameters download only the current song (v=…). Song names open a recording picker.</div></section>
-<div id="tools-warning" class="notice" hidden></div>
-<section id="recent-downloads" class="list-section recent-section" hidden><div class="list-heading"><div><h2>Recently downloaded</h2><span>Your finished tracks, saved and ready to find.</span></div><div class="recent-heading-actions"><span class="pill" id="download-total">0 SAVED</span><button id="view-downloads" class="button subtle">View all downloads ↗</button></div></div><div id="recent-list"></div></section>
-<section class="list-section"><div class="list-heading"><div><h2 id="list-title">In the queue</h2><span id="list-subtitle">Your next additions, from request to ready.</span></div><span class="pill" id="total">0 TRACKS</span></div><div id="list"></div></section>
-<footer><span><i></i> <span id="connection">Connected to your Mac</span></span><span>SUCCESSFUL = DOWNLOADED & CHECKED. AUDITION BEFORE YOUR SET.</span></footer>
-</main></div><div id="toast" role="status" hidden></div>
-<dialog id="settings"><form id="settings-form"><div class="eyebrow accent">MAKE IT YOURS</div><h2>Preferences</h2><label for="output-dir">Staging folder</label><div class="folder-row"><input id="output-dir" required><button type="button" class="button subtle" id="pick-folder">Choose folder…</button></div><p class="help">Finished files land here. Keep a stable path after importing into your DJ software.</p><label for="profile">Output format</label><select id="profile"><option value="mp3">MP3 · 320 kbps compatibility copy</option><option value="aiff">AIFF · 16-bit / 44.1 kHz</option><option value="original">Original · preserve downloaded format</option></select><p class="help">Conversion cannot restore stream quality. Acquired originals are kept separately. Original mode preserves existing tags.</p><div class="dialog-actions"><button type="button" class="button subtle" id="quit-app">Quit app</button><button type="button" class="button subtle" id="settings-close">Cancel</button><button class="button primary">Save preferences</button></div></form></dialog>
+<body>
+<header class="topbar" id="topbar">
+  <a class="brand" href="/"><span class="logo" aria-hidden="true"></span>DJ Intake</a>
+  <nav class="tabs" aria-label="Library sections">
+    <button data-tab="queue" class="tab active" aria-current="page">Add <b data-count="queue">0</b></button>
+    <button data-tab="finds" class="tab">Identify <b data-count="finds">0</b></button>
+    <button data-tab="successful" class="tab">Library <b data-count="successful">0</b></button>
+    <button data-tab="failed" class="tab tab-failed">Failed <b data-count="failed">0</b></button>
+  </nav>
+  <div class="top-actions">
+    <button id="settings-open" class="pill ghost icon" aria-label="Preferences" title="Preferences">⚙</button>
+    <button id="folder" class="pill primary">Staging folder ↗</button>
+  </div>
+</header>
+
+<section class="hero" id="hero" data-mode="queue" aria-labelledby="hero-title">
+  <div class="hero-photo" aria-hidden="true"></div>
+  <div class="hero-inner">
+    <div class="hero-main">
+      <div class="tag"><span class="tag-box"><i class="live-dot"></i>Local on your Mac · <span id="version">v0.3</span></span><span class="tag-line" aria-hidden="true"></span></div>
+
+      <h1 id="hero-title" class="reveal" data-view="queue"><span>Your next set</span> <span>starts here.</span></h1>
+      <h1 class="reveal" data-view="finds" hidden><span>What’s that song?</span> <span>Ask Shazam.</span></h1>
+      <h1 class="reveal" data-view="successful" hidden><span>Every file,</span> <span>ready for the decks.</span></h1>
+      <h1 class="reveal" data-view="failed" hidden><span>Nothing is lost.</span> <span>Try it again.</span></h1>
+
+      <div class="live-card" id="live-card" hidden>
+        <span class="live-label"><span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span id="live-label"></span></span>
+        <strong id="live-title"></strong>
+        <span id="live-detail"></span>
+      </div>
+
+      <section class="composer" id="queue-composer" data-view="queue">
+        <form id="add-form">
+          <label for="input" class="eyebrow">Add to your library</label>
+          <textarea id="input" rows="2" placeholder="Paste a track URL or type Artist — Song title" required></textarea>
+          <label class="trim-toggle"><input id="trim-enabled" type="checkbox"> Trim to timestamps <span>Optional</span></label>
+          <div class="clip-inputs" id="clip-fields" hidden>
+            <div><label for="clip-start">Start</label><input id="clip-start" type="text" inputmode="text" placeholder="00:00" autocomplete="off"></div>
+            <span class="clip-arrow">→</span>
+            <div><label for="clip-end">End</label><input id="clip-end" type="text" inputmode="text" placeholder="00:00" autocomplete="off"></div>
+            <p>Download just this section. MM:SS or HH:MM:SS.</p>
+          </div>
+          <div class="composer-bottom">
+            <span class="sources">YouTube · SoundCloud · Bandcamp · Spotify lookup</span>
+            <button class="pill primary" type="submit" id="add">Add to queue <span aria-hidden="true">↗</span></button>
+          </div>
+        </form>
+        <div class="composer-note">One track per line. Playlist links download only the current song. Song names open a recording picker.</div>
+      </section>
+    </div>
+
+    <aside class="hero-side">
+      <div data-view="queue">
+        <p>Paste a link or type a song. DJ Intake fetches, checks and names the file — all on this Mac. Don’t know the name? Let Shazam identify it.</p>
+        <div class="side-actions"><button type="button" class="pill primary" id="hero-identify">Identify a song <span class="rings" aria-hidden="true"></span></button><button type="button" class="pill ghost" id="hero-library">Open library</button></div>
+      </div>
+      <div data-view="finds" hidden>
+        <p>Play a song on your Mac or nearby and click Identify. Shazam names it, DJ Intake saves it — then you pick the version to download.</p>
+        <div class="side-actions"><button id="identify-song" class="pill primary listen">Identify song <span class="rings" aria-hidden="true"></span></button><button id="recognition-setup" class="pill ghost">Set up recognition ↗</button></div>
+        <small class="side-note">Song recognition by Shazam, through Apple Shortcuts. The first time, macOS asks to use the microphone.</small>
+        <p id="recognition-status" role="status" hidden></p>
+      </div>
+      <div data-view="successful" hidden>
+        <p>Finished files are named Artist_Song (Version) and saved to your staging folder, ready to import into Serato or rekordbox.</p>
+      </div>
+      <div data-view="failed" hidden>
+        <p>Each failed request keeps its reason. Fix the link or retry it below — your other tracks keep going.</p>
+      </div>
+    </aside>
+  </div>
+</section>
+
+<main>
+  <section class="stats" aria-label="Overview">
+    <button class="stat" data-tab="queue"><span class="eyebrow">01 · In the queue</span><strong data-count="queue">0</strong><small>Being found, fetched or checked</small></button>
+    <button class="stat" data-tab="finds"><span class="eyebrow">02 · Saved finds</span><strong data-count="finds">0</strong><small>Identified, waiting for a version</small></button>
+    <button class="stat" data-tab="successful"><span class="eyebrow">03 · Downloaded</span><strong data-count="successful">0</strong><small>Checked and in your staging folder</small></button>
+    <button class="stat stat-failed" data-tab="failed"><span class="eyebrow">04 · Needs a retry</span><strong data-count="failed">0</strong><small>Each keeps its reason</small></button>
+  </section>
+
+  <div id="tools-warning" class="notice" hidden></div>
+  <button id="failed-nudge" class="notice nudge" hidden></button>
+
+  <section id="recent-downloads" class="list-section recent-section" hidden>
+    <div class="list-heading"><div><span class="eyebrow">Just finished</span><h2>Recently downloaded</h2></div><div class="recent-heading-actions"><span class="count-pill" id="download-total">0 saved</span><button id="view-downloads" class="pill ghost">View library ↗</button></div></div>
+    <div id="recent-list" class="rows"></div>
+  </section>
+
+  <section class="list-section">
+    <div class="list-heading"><div><span class="eyebrow" id="list-eyebrow">Queue</span><h2 id="list-title">In the queue</h2><span class="sub" id="list-subtitle">Your next additions, from request to ready.</span></div><span class="count-pill" id="total">0 tracks</span></div>
+    <div id="list" class="rows"></div>
+  </section>
+
+  <footer>
+    <span><i class="live-dot"></i> <span id="connection">Connected to your Mac</span></span>
+    <span>Downloaded = fetched, checked and tagged. Audition before your set.</span>
+    <a href="https://github.com/clement55688/dj-intake-app/issues" target="_blank" rel="noopener noreferrer">Feedback ↗</a>
+  </footer>
+</main>
+<div id="toast" role="status" hidden></div>
+
+<dialog id="settings"><form id="settings-form"><div class="eyebrow">Make it yours</div><h2>Preferences</h2><label for="output-dir">Staging folder</label><div class="folder-row"><input id="output-dir" required><button type="button" class="pill ghost" id="pick-folder">Choose folder…</button></div><p class="help">Finished files land here. Keep a stable path after importing into your DJ software.</p><label for="profile">Output format</label><select id="profile"><option value="mp3">MP3 · 320 kbps compatibility copy</option><option value="aiff">AIFF · 16-bit / 44.1 kHz</option><option value="original">Original · preserve downloaded format</option></select><p class="help">Conversion cannot restore stream quality. Acquired originals are kept separately. Original mode preserves existing tags.</p><div class="dialog-actions"><button type="button" class="pill ghost quit" id="quit-app">Quit app</button><button type="button" class="pill ghost" id="settings-close">Cancel</button><button class="pill primary">Save preferences</button></div></form></dialog>
+<dialog id="find-editor"><form id="find-form">
+<div class="eyebrow">Saved finds</div><h2 id="find-editor-title"></h2>
+<label for="find-value" id="find-label"></label><input id="find-value" required autocomplete="off">
+<p class="help" id="find-help"></p><p id="find-error" role="alert" hidden></p>
+<div class="dialog-actions"><button type="button" class="pill ghost" id="find-cancel">Cancel</button><button class="pill primary" id="find-submit"></button></div>
+</form></dialog>
 <template id="empty-template"><div class="empty"><div class="record"><span></span></div><h3></h3><p></p></div></template>
 </body></html>

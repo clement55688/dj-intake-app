@@ -5,7 +5,8 @@
 3. Double-click **DJ Intake.app** on your Desktop. The library opens in your browser and a record icon appears in the Mac menu bar. Click the icon to paste a URL and queue it without opening the full library.
 4. Use **Settings → Choose folder…** in either view to set the default download location. Picking a folder saves it immediately. Previously downloaded files stay where they are.
 5. Enable **Trim to timestamps** to cut a section. For example, enter `00:50` and `02:30` for a 1:40 clip. Leave it off for the whole track.
-6. Open **Downloads → Show in Finder** to locate a finished file. Song-name searches may need you to select a recording in the full library.
+6. Open **Library → Show in Finder** to locate a finished file. Song-name searches may need you to select a recording in the full library.
+7. To name a song you hear, open **Identify** and click **Set up recognition** once. Apple Shortcuts opens; click **Add Shortcut**. Then play a song on your Mac or nearby and click **Identify song** — Shazam, through Apple Shortcuts, names it and DJ Intake saves it to Saved finds. The first time, macOS asks to use the microphone; choose **Allow**. Nothing downloads until you pick a version. See [RECOGNITION.md](RECOGNITION.md).
 
 Use sources you're entitled to download. Keep the Mac awake while the queue is working.
 

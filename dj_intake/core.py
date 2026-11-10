@@ -158,6 +158,9 @@ class Store:
             for column in ('clip_start', 'clip_end'):
                 if column not in columns:
                     c.execute(f'ALTER TABLE jobs ADD COLUMN {column} REAL')
+            if 'find_identity' not in columns:
+                c.execute('ALTER TABLE jobs ADD COLUMN find_identity TEXT')
+            c.execute('CREATE TABLE IF NOT EXISTS finds (identity TEXT PRIMARY KEY, name TEXT NOT NULL, found_at REAL NOT NULL)')
             c.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)')
             c.execute("UPDATE jobs SET status='queued', error='Resumed after app restart' WHERE status IN ('resolving','downloading','processing')")
         self.wake = threading.Event()
@@ -166,6 +169,57 @@ class Store:
         c = sqlite3.connect(self.db, timeout=20)
         c.row_factory = sqlite3.Row
         return c
+
+    def remember_find(self, name):
+        found_at = time.time()
+        identity = unicodedata.normalize('NFC', name).casefold()
+        with self.connect() as connection:
+            connection.execute(
+                'INSERT INTO finds VALUES (?, ?, ?) ON CONFLICT(identity) DO UPDATE SET found_at=excluded.found_at',
+                (identity, name, found_at),
+            )
+            return dict(connection.execute('SELECT * FROM finds WHERE identity=?', (identity,)).fetchone())
+
+    def finds(self):
+        with self.connect() as connection:
+            return [dict(row) for row in connection.execute(
+                'SELECT identity, name, found_at FROM finds ORDER BY found_at DESC'
+            )]
+
+    def rename_find(self, identity, name):
+        if not isinstance(name, str) or not 1 <= len(name.strip()) <= 240 or any(ord(ch) < 32 for ch in name):
+            raise ValueError('Enter a song name of up to 240 characters on one line.')
+        with self.connect() as c:
+            if not c.execute('UPDATE finds SET name=? WHERE identity=?',
+                             (unicodedata.normalize('NFC', name.strip()), identity)).rowcount:
+                raise ValueError('Saved find not found.')
+
+    def request_find(self, identity, source_url=None):
+        if source_url is not None:
+            if not isinstance(source_url, str):
+                raise ValueError('Paste a track link.')
+            source, url = route(source_url)
+            if source not in ('YouTube', 'SoundCloud', 'Bandcamp'):
+                raise ValueError('Paste an individual YouTube, SoundCloud or Bandcamp track link.')
+        with self.connect() as c:
+            c.execute('BEGIN IMMEDIATE')
+            found = c.execute('SELECT name FROM finds WHERE identity=?', (identity,)).fetchone()
+            if not found:
+                raise ValueError('Saved find not found.')
+            if source_url is None:
+                source, url = 'Search', found['name']
+            old = c.execute("SELECT * FROM jobs WHERE find_identity=? AND status!='cancelled' ORDER BY created DESC LIMIT 1", (identity,)).fetchone()
+            if old and old['status'] in ('queued', 'resolving', 'downloading', 'processing'):
+                raise ValueError('This find already has a request in progress.')
+            if old and old['source'] == 'Search':
+                c.execute("UPDATE jobs SET status='cancelled', updated=? WHERE id=?", (time.time(), old['id']))
+            ident = uuid.uuid4().hex
+            now = time.time()
+            profile = c.execute("SELECT value FROM settings WHERE key='profile'").fetchone()
+            c.execute('INSERT INTO jobs (id,input,source,url,status,title,artist,error,candidates,profile,created,updated,find_identity) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)',
+                      (ident, found['name'], source, url, 'queued', '', '', '', '[]', profile[0] if profile else 'mp3', now, now, identity))
+        self.wake.set()
+        return self.get(ident)
 
     def setting(self, key, default):
         with self.connect() as c:
@@ -241,7 +295,10 @@ class Store:
         if not chosen:
             raise ValueError('Choose a listed recording.')
         source, url = route(url)
-        self.update(ident, source=source, url=url, title=chosen['title'], status='queued', error='')
+        with self.connect() as c:
+            if not c.execute("UPDATE jobs SET source=?,url=?,title=?,status='queued',error='',updated=? WHERE id=? AND status='needs_selection'",
+                             (source, url, chosen['title'], time.time(), ident)).rowcount:
+                raise ValueError('This request is no longer waiting for a selection.')
         self.wake.set()
 
 
@@ -321,7 +378,7 @@ class Worker:
             data = self.metadata('ytsearch5:'+query, jobdir, flat=True)
             candidates = []
             for entry in data.get('entries', []):
-                if not entry or not entry.get('id'):
+                if not entry or not re.fullmatch(r'[A-Za-z0-9_-]{11}', str(entry.get('id', ''))):
                     continue
                 candidates.append({'title':entry.get('title','Untitled'), 'artist':entry.get('channel') or entry.get('uploader') or '',
                                    'duration':entry.get('duration'), 'url':'https://www.youtube.com/watch?v='+entry['id']})

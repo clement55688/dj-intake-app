@@ -13,7 +13,7 @@ class HTTPTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp=tempfile.TemporaryDirectory()
-        code='from dj_intake.server import start; from dj_intake.core import Worker; Worker.run=lambda self:None; import sys; start(sys.argv[1],0,False)'
+        code='import dj_intake.server as server; server.identify=lambda: "Avicii - Levels"; from dj_intake.server import start; from dj_intake.core import Worker; Worker.run=lambda self:None; import sys; start(sys.argv[1],0,False)'
         cls.proc=subprocess.Popen([sys.executable,'-c',code,cls.tmp.name],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
         cls.url=cls.proc.stdout.readline().strip().split('DJ Intake: ')[-1]
         if not cls.url.startswith('http://127.0.0.1:'):
@@ -35,6 +35,44 @@ class HTTPTests(unittest.TestCase):
             with self.subTest(headers=headers),self.assertRaises(urllib.error.HTTPError) as ctx:
                 self.request('/api/jobs',{'input':'Test track'},headers)
             self.assertEqual(ctx.exception.code,403)
+
+    def test_identified_song_is_saved_once_without_queuing_a_download(self):
+        before = len(self.request('/api/state')['jobs'])
+        for _ in range(2):
+            self.assertEqual(self.request('/api/identify', {})['name'], 'Avicii - Levels')
+        state = self.request('/api/state')
+        self.assertEqual([row['name'] for row in state['finds']], ['Avicii - Levels'])
+        self.assertEqual(len(state['jobs']), before)
+
+    def test_saved_find_edit_search_and_direct_download(self):
+        match = self.request('/api/identify', {})
+        identity = match['identity']
+        self.request('/api/finds/rename', {'identity':identity,'name':'Avicii - Levels (Club Edit)'})
+        try:
+            self.assertEqual(self.request('/api/identify', {})['name'], 'Avicii - Levels (Club Edit)')
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                self.request('/api/finds/download', {'identity':identity,'url':'https://127.0.0.1/private'})
+            self.assertEqual(ctx.exception.code, 400)
+            search = self.request('/api/finds/search', {'identity':identity})
+            self.assertEqual((search['source'], search['url'], search['find_identity']),
+                             ('Search', 'Avicii - Levels (Club Edit)', identity))
+            with self.assertRaises(urllib.error.HTTPError) as ctx:
+                self.request('/api/finds/search', {'identity':identity})
+            self.assertEqual(ctx.exception.code, 400)
+            # Resolve the search deterministically without hitting a streaming service.
+            from dj_intake.core import Store, Worker
+            from unittest.mock import patch
+            worker = Worker(Store(self.tmp.name))
+            with patch.object(worker, 'metadata', return_value={'entries':[{'id':'BaW_jenozKc','title':'A club version'}]}):
+                worker.process(search)
+            selected = json.loads(worker.store.get(search['id'])['candidates'])[0]['url']
+            self.request('/api/choose', {'id':search['id'],'url':selected})
+            self.assertEqual(worker.store.get(search['id'])['source'], 'YouTube')
+            worker.store.update(search['id'], status='successful')
+            direct = self.request('/api/finds/download', {'identity':identity,'url':'https://soundcloud.com/artist/track'})
+            self.assertEqual((direct['source'], direct['status'], direct['find_identity']), ('SoundCloud','queued',identity))
+        finally:
+            self.request('/api/finds/rename', {'identity':identity,'name':'Avicii - Levels'})
 
     def test_mixed_batch_keeps_errors_and_valid_requests(self):
         result=self.request('/api/jobs',{'input':'Artist - Track\nhttps://127.0.0.1/private'})

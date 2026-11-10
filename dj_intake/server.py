@@ -12,6 +12,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 from .core import ROOT, Store, Worker, tool
+from .recognition import identify, open_setup
 
 
 class Server(ThreadingHTTPServer):
@@ -38,6 +39,7 @@ def start(home, port=8765, browser=True):
     store = Store(home)
     token = secrets.token_urlsafe(32)
     folder_picker = threading.Lock()
+    recognition = threading.Lock()
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self,*args):
@@ -68,17 +70,21 @@ def start(home, port=8765, browser=True):
                 if path == '/api/settings':
                     return self.reply(200, {'output_dir': store.setting('output_dir', str(Path.home()/'Music/DJ Intake Staging'))})
                 if path == '/api/state':
-                    return self.reply(200,{'jobs':store.jobs(),'settings':{'output_dir':store.setting('output_dir',str(Path.home()/'Music/DJ Intake Staging')),'profile':store.setting('profile','mp3')},'tools':{n:bool(tool(n)) for n in ('yt-dlp','ffmpeg','ffprobe')},'version':'0.3.0'})
+                    return self.reply(200,{'jobs':store.jobs(),'finds':store.finds(),'settings':{'output_dir':store.setting('output_dir',str(Path.home()/'Music/DJ Intake Staging')),'profile':store.setting('profile','mp3')},'tools':{n:bool(tool(n)) for n in ('yt-dlp','ffmpeg','ffprobe')},'version':'0.4.0'})
                 return self.reply(404,{'error':'Not found'})
-            assets = {'/':'index.html','/style.css':'style.css','/app.js':'app.js','/app-icon.png':'app-icon.png','/quick':'quick.html','/quick.js':'quick.js'}
+            assets = {'/':'index.html','/style.css':'style.css','/app.js':'app.js','/app-icon.png':'app-icon.png','/quick':'quick.html','/quick.js':'quick.js','/hero.jpg':'hero.jpg','/fonts/Geist.woff2':'fonts/Geist.woff2','/fonts/GeistMono.woff2':'fonts/GeistMono.woff2','/recognition-setup':'RECOGNITION.md'}
             if path not in assets:
                 return self.reply(404,{'error':'Not found'})
             file = ROOT/'assets/app-icon.png' if path == '/app-icon.png' else ROOT/'dj_intake/static'/assets[path]
+            if path == '/recognition-setup':
+                file = ROOT/'RECOGNITION.md'
+            if not file.is_file():
+                return self.reply(404,{'error':'Not found'})
             blob = file.read_bytes()
             if path in ('/', '/quick'):
                 blob = blob.replace(b'__TOKEN__',token.encode())
             self.send_response(200)
-            self.send_header('Content-Type',{'/':'text/html; charset=utf-8','/style.css':'text/css','/app.js':'text/javascript','/app-icon.png':'image/png','/quick':'text/html; charset=utf-8','/quick.js':'text/javascript'}[path])
+            self.send_header('Content-Type',{'/':'text/html; charset=utf-8','/style.css':'text/css','/app.js':'text/javascript','/app-icon.png':'image/png','/quick':'text/html; charset=utf-8','/quick.js':'text/javascript','/hero.jpg':'image/jpeg','/fonts/Geist.woff2':'font/woff2','/fonts/GeistMono.woff2':'font/woff2','/recognition-setup':'text/plain; charset=utf-8'}[path])
             self.send_header('Content-Length',str(len(blob)))
             self.send_header('Cache-Control','no-store')
             self.send_header('X-Frame-Options','DENY')
@@ -116,8 +122,26 @@ def start(home, port=8765, browser=True):
                             except ValueError as exc:
                                 errors.append({'input':line,'error':str(exc)})
                     return self.reply(200,{'added':added,'errors':errors})
+                if path == '/api/identify':
+                    if not recognition.acquire(blocking=False):
+                        raise ValueError('Already listening for a song.')
+                    try:
+                        match = store.remember_find(identify())
+                    finally:
+                        recognition.release()
+                    return self.reply(200, match)
+                if path == '/api/recognition/setup':
+                    return self.reply(200, {'installed': open_setup()})
                 if path == '/api/retry':
                     store.retry(body['id'])
+                elif path == '/api/finds/rename':
+                    store.rename_find(body['identity'], body['name'])
+                elif path == '/api/finds/search':
+                    return self.reply(200, store.request_find(body['identity']))
+                elif path == '/api/finds/download':
+                    if not isinstance(body.get('url'), str):
+                        raise ValueError('Paste a track link.')
+                    return self.reply(200, store.request_find(body['identity'], body['url']))
                 elif path == '/api/choose':
                     store.choose(body['id'],body['url'])
                 elif path == '/api/settings':
