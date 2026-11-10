@@ -115,11 +115,16 @@ final class IntakeDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHand
         switch action {
         case "resize":
             if let height = data["height"] as? Double {
-                popover.contentSize = NSSize(width: 390, height: max(300, min(560, height)))
+                popover.contentSize = NSSize(width: 390, height: max(300, min(760, height)))
             }
         case "open":
             popover.performClose(nil)
-            prepare(openBrowser: true)
+            // Only the fixed tutorial page is allowed besides the library home.
+            if data["path"] as? String == "/?tour", let tour = URL(string: "http://127.0.0.1:8765/?tour") {
+                NSWorkspace.shared.open(tour)
+            } else {
+                prepare(openBrowser: true)
+            }
         case "quit":
             NSApp.terminate(nil)
         default: break

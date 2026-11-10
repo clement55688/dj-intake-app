@@ -21,4 +21,4 @@ The shortcut uses Apple’s Recognize Music action and returns its result as tex
 shortcuts run 'DJ Intake Recognize' --output-type public.plain-text --output-path -
 ```
 
-Recognition happens only when you click Identify song. DJ Intake stores the returned text and time on your Mac. Apple’s recognition service handles the audio. Matches depend on what the Mac can hear and what Shazam can identify. A mix, mashup, or heavily altered edit may return no match or a different version of the song.
+Recognition happens only when you click Identify song. DJ Intake stores the returned text and time on your Mac. Apple’s recognition service handles the audio. Matches depend on what the Mac can hear and what Shazam can identify. Play the song out loud through speakers: recognition listens with the microphone and can’t hear audio that only plays in headphones. If Shortcuts says “Try again when network conditions improve”, that usually means it heard silence. A mix, mashup, or heavily altered edit may return no match or a different version of the song.

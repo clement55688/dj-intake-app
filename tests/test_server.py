@@ -74,6 +74,23 @@ class HTTPTests(unittest.TestCase):
         finally:
             self.request('/api/finds/rename', {'identity':identity,'name':'Avicii - Levels'})
 
+    def test_delete_find_cancels_its_search_and_undo_restores_it(self):
+        server_identify = self.request('/api/identify', {})  # Avicii - Levels (shared fixture)
+        identity = server_identify['identity']
+        self.request('/api/finds/rename', {'identity':identity,'name':'Avicii - Levels (Edit)'})
+        search = self.request('/api/finds/search', {'identity':identity})
+        deleted = self.request('/api/finds/delete', {'identity':identity})
+        self.assertEqual(deleted['name'], 'Avicii - Levels (Edit)')
+        state = self.request('/api/state')
+        self.assertNotIn(identity, [row['identity'] for row in state['finds']])
+        self.assertEqual(next(j for j in state['jobs'] if j['id']==search['id'])['status'], 'cancelled')
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.request('/api/finds/delete', {'identity':identity})
+        self.assertEqual(ctx.exception.code, 400)
+        restored = self.request('/api/finds/restore', {'identity':identity,'name':deleted['name'],'found_at':deleted['found_at']})
+        self.assertEqual((restored['identity'], restored['name'], restored['found_at']), (identity, 'Avicii - Levels (Edit)', deleted['found_at']))
+        self.request('/api/finds/rename', {'identity':identity,'name':'Avicii - Levels'})
+
     def test_mixed_batch_keeps_errors_and_valid_requests(self):
         result=self.request('/api/jobs',{'input':'Artist - Track\nhttps://127.0.0.1/private'})
         self.assertEqual(len(result['added']),1)

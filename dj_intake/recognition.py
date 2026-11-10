@@ -5,6 +5,8 @@ import tempfile
 from pathlib import Path
 
 SHORTCUT = 'DJ Intake Recognize'
+HEARING_HELP = ('Shazam couldn\u2019t hear a song. Play it out loud through your speakers \u2014 it can\u2019t hear headphones \u2014 '
+                'and make sure your Mac\u2019s microphone is the input in Sound settings.')
 
 
 def shortcut_is_installed():
@@ -47,6 +49,10 @@ def identify():
                 capture_output=True, timeout=60,
             )
             if result.returncode or not output.is_file():
+                detail = result.stderr.decode('utf-8', 'replace').casefold()
+                # Shazam reports silence (e.g. music only in headphones) as a network problem.
+                if 'network' in detail or 'no match' in detail or 'couldn' in detail:
+                    raise ValueError(HEARING_HELP)
                 raise ValueError('No song was returned. Check the shortcut permissions or try again during a clearer part of the track.')
             with output.open('rb') as stream:
                 match = ' '.join(stream.read(4097).decode('utf-8').split())

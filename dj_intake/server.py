@@ -70,7 +70,7 @@ def start(home, port=8765, browser=True):
                 if path == '/api/settings':
                     return self.reply(200, {'output_dir': store.setting('output_dir', str(Path.home()/'Music/DJ Intake Staging'))})
                 if path == '/api/state':
-                    return self.reply(200,{'jobs':store.jobs(),'finds':store.finds(),'settings':{'output_dir':store.setting('output_dir',str(Path.home()/'Music/DJ Intake Staging')),'profile':store.setting('profile','mp3')},'tools':{n:bool(tool(n)) for n in ('yt-dlp','ffmpeg','ffprobe')},'version':'0.4.0'})
+                    return self.reply(200,{'jobs':store.jobs(),'finds':store.finds(),'settings':{'output_dir':store.setting('output_dir',str(Path.home()/'Music/DJ Intake Staging')),'profile':store.setting('profile','mp3')},'tools':{n:bool(tool(n)) for n in ('yt-dlp','ffmpeg','ffprobe')},'version':'0.4.1'})
                 return self.reply(404,{'error':'Not found'})
             assets = {'/':'index.html','/style.css':'style.css','/app.js':'app.js','/app-icon.png':'app-icon.png','/quick':'quick.html','/quick.js':'quick.js','/hero.jpg':'hero.jpg','/fonts/Geist.woff2':'fonts/Geist.woff2','/fonts/GeistMono.woff2':'fonts/GeistMono.woff2','/recognition-setup':'RECOGNITION.md'}
             if path not in assets:
@@ -136,6 +136,10 @@ def start(home, port=8765, browser=True):
                     store.retry(body['id'])
                 elif path == '/api/finds/rename':
                     store.rename_find(body['identity'], body['name'])
+                elif path == '/api/finds/delete':
+                    return self.reply(200, store.delete_find(body['identity']))
+                elif path == '/api/finds/restore':
+                    return self.reply(200, store.restore_find(body.get('identity'), body.get('name'), body.get('found_at')))
                 elif path == '/api/finds/search':
                     return self.reply(200, store.request_find(body['identity']))
                 elif path == '/api/finds/download':

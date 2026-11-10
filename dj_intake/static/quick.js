@@ -48,6 +48,25 @@ $('#quick-form').onsubmit = async event => {
   } finally { $('#quick-submit').disabled = false; resize(); }
 };
 $('#quick-open').onclick = () => native('open');
+// Short how-to: open on the first visit, then only when asked.
+const HELP_KEY = 'djintake.quickhelp.v1';
+function setHelp(open) {
+  $('#quick-help').hidden = !open;
+  $('#quick-help-toggle').setAttribute('aria-expanded', String(open));
+  $('#quick-help-toggle').textContent = open ? 'Hide tips' : 'How it works';
+  resize();
+}
+$('#quick-help-toggle').onclick = () => {
+  setHelp($('#quick-help').hidden);
+  try { localStorage.setItem(HELP_KEY, '1'); } catch { /* ignore */ }
+};
+$('#quick-tour').onclick = () => native('open', { path: '/?tour' });
+let helpSeen = false;
+try { helpSeen = localStorage.getItem(HELP_KEY) === '1'; } catch { /* ignore */ }
+if (!helpSeen) {
+  setHelp(true);
+  try { localStorage.setItem(HELP_KEY, '1'); } catch { /* ignore */ }
+}
 $('#quick-quit').onclick = () => native('quit');
 new ResizeObserver(resize).observe($('.quick-main'));
 resize();

@@ -23,11 +23,20 @@ async function api(path, body) {
   return data;
 }
 
-function toast(message) {
-  $('#toast').textContent = message;
-  $('#toast').hidden = false;
+function toast(message, action) {
+  const box = $('#toast');
+  box.replaceChildren(node('span', '', message));
+  if (action) {
+    const undo = node('button', 'toast-action', action.label);
+    undo.onclick = async () => {
+      box.hidden = true;
+      try { await action.run(); await refresh(); } catch (error) { toast(error.message); }
+    };
+    box.append(undo);
+  }
+  box.hidden = false;
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => { $('#toast').hidden = true; }, 6500);
+  toastTimer = setTimeout(() => { box.hidden = true; }, action ? 9000 : 6500);
 }
 
 function node(tag, className, text) {
@@ -161,12 +170,21 @@ function findCard(find, job) {
   info.append(node('h3', '', find.name), node('div', 'meta', summary.join(' · ')));
   const controls = node('div', 'find-controls');
   controls.append(button('Edit name', () => editFind(find, 'rename')));
+  const remove = button('Delete', async () => {
+    const removed = await api('finds/delete', { identity: find.identity });
+    toast('Removed “' + removed.name + '” from Saved finds.', {
+      label: 'Undo',
+      run: () => api('finds/restore', { identity: removed.identity, name: removed.name, found_at: removed.found_at }),
+    });
+  }, 'pill ghost danger');
+  remove.setAttribute('aria-label', 'Delete ' + find.name + ' from Saved finds');
   if (!busy) {
     controls.append(button('Use a link', () => editFind(find, 'download')));
     if (job?.status !== 'needs_selection' || job.input !== find.name) {
       controls.append(button('Find versions', () => api('finds/search', { identity: find.identity }), 'pill primary'));
     }
   }
+  controls.append(remove);
   top.append(node('div', 'track-icon', '◉'), info, controls);
   const body = node('div', 'track-body');
   card.append(top, body);
@@ -273,7 +291,7 @@ function render(force = false) {
     empty.querySelector('p').textContent = {
       queue: completed.length ? 'Your finished music is saved above. Add another link whenever you’re ready.' : 'Add a track above. Its progress and recording choices will appear here.',
       successful: 'Completed downloads will appear here and on the Queue page.',
-      finds: 'Play a song on your Mac or nearby, then click Identify song. Shazam does the listening.',
+      finds: 'Play a song out loud on your speakers or nearby, then click Identify song. Shazam does the listening.',
       failed: 'If a request fails, its details and retry action will appear here.',
     }[tab];
     list.append(empty);
@@ -395,6 +413,32 @@ $('#quit-app').onclick = async () => {
 };
 refresh();
 setInterval(refresh, 2500);
+
+// First-run tutorial. "Seen" is remembered in this browser only; the How to use button reopens it.
+const TUTORIAL_KEY = 'djintake.tutorial.v1';
+const tutorialSteps = [...document.querySelectorAll('.tutorial-step')];
+let tutorialStep = 0;
+function showTutorialStep(index) {
+  tutorialStep = index;
+  tutorialSteps.forEach((step, i) => { step.hidden = i !== index; });
+  document.querySelectorAll('#tutorial .dots i').forEach((dot, i) => dot.classList.toggle('on', i === index));
+  $('#tutorial-count').textContent = (index + 1) + ' of ' + tutorialSteps.length;
+  $('#tutorial-back').hidden = index === 0;
+  $('#tutorial-next').textContent = index === tutorialSteps.length - 1 ? 'Start using DJ Intake' : 'Next';
+}
+function openTutorial() { showTutorialStep(0); $('#tutorial').showModal(); }
+function closeTutorial() {
+  $('#tutorial').close();
+  try { localStorage.setItem(TUTORIAL_KEY, '1'); } catch { /* private mode: show again next time */ }
+}
+$('#help-open').onclick = openTutorial;
+$('#tutorial-skip').onclick = closeTutorial;
+$('#tutorial-back').onclick = () => showTutorialStep(Math.max(0, tutorialStep - 1));
+$('#tutorial-next').onclick = () => (tutorialStep === tutorialSteps.length - 1 ? closeTutorial() : showTutorialStep(tutorialStep + 1));
+$('#tutorial').addEventListener('cancel', () => { try { localStorage.setItem(TUTORIAL_KEY, '1'); } catch { /* ignore */ } });
+let seenTutorial = false;
+try { seenTutorial = localStorage.getItem(TUTORIAL_KEY) === '1'; } catch { /* ignore */ }
+if (!seenTutorial || new URLSearchParams(location.search).has('tour')) openTutorial();
 
 
 $('#identify-song').onclick = async () => {

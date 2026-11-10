@@ -194,6 +194,31 @@ class Store:
                              (unicodedata.normalize('NFC', name.strip()), identity)).rowcount:
                 raise ValueError('Saved find not found.')
 
+    def delete_find(self, identity):
+        """Remove a saved find and cancel its pending version search. Downloads already queued keep going."""
+        with self.connect() as c:
+            c.execute('BEGIN IMMEDIATE')
+            row = c.execute('SELECT * FROM finds WHERE identity=?', (identity,)).fetchone()
+            if not row:
+                raise ValueError('Saved find not found.')
+            c.execute('DELETE FROM finds WHERE identity=?', (identity,))
+            c.execute("UPDATE jobs SET status='cancelled', updated=? WHERE find_identity=? AND source='Search' AND status IN ('queued','needs_selection')",
+                      (time.time(), identity))
+            return dict(row)
+
+    def restore_find(self, identity, name, found_at):
+        """Undo for delete_find: put the find back with its original time."""
+        if not isinstance(name, str) or not 1 <= len(name.strip()) <= 240 or any(ord(ch) < 32 for ch in name):
+            raise ValueError('Enter a song name of up to 240 characters on one line.')
+        if not isinstance(found_at, (int, float)) or not 0 < found_at <= time.time() + 60:
+            raise ValueError('Invalid saved find time.')
+        if not isinstance(identity, str) or not 1 <= len(identity) <= 1000:
+            raise ValueError('Saved find not found.')
+        name = unicodedata.normalize('NFC', name.strip())
+        with self.connect() as c:
+            c.execute('INSERT OR IGNORE INTO finds VALUES (?, ?, ?)', (identity, name, float(found_at)))
+            return dict(c.execute('SELECT * FROM finds WHERE identity=?', (identity,)).fetchone())
+
     def request_find(self, identity, source_url=None):
         if source_url is not None:
             if not isinstance(source_url, str):

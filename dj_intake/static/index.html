@@ -10,6 +10,7 @@
     <button data-tab="failed" class="tab tab-failed">Failed <b data-count="failed">0</b></button>
   </nav>
   <div class="top-actions">
+    <button id="help-open" class="pill ghost help-pill">How to use</button>
     <button id="settings-open" class="pill ghost icon" aria-label="Preferences" title="Preferences">⚙</button>
     <button id="folder" class="pill primary">Staging folder ↗</button>
   </div>
@@ -58,9 +59,9 @@
         <div class="side-actions"><button type="button" class="pill primary" id="hero-identify">Identify a song <span class="rings" aria-hidden="true"></span></button><button type="button" class="pill ghost" id="hero-library">Open library</button></div>
       </div>
       <div data-view="finds" hidden>
-        <p>Play a song on your Mac or nearby and click Identify. Shazam names it, DJ Intake saves it — then you pick the version to download.</p>
+        <p>Play a song out loud — on your Mac’s speakers or nearby — and click Identify. Shazam names it, DJ Intake saves it, then you pick the version to download.</p>
         <div class="side-actions"><button id="identify-song" class="pill primary listen">Identify song <span class="rings" aria-hidden="true"></span></button><button id="recognition-setup" class="pill ghost">Set up recognition ↗</button></div>
-        <small class="side-note">Song recognition by Shazam, through Apple Shortcuts. The first time, macOS asks to use the microphone.</small>
+        <small class="side-note">Song recognition by Shazam, through Apple Shortcuts. It listens with your Mac’s microphone, so it can’t hear headphones. The first time, macOS asks to use the microphone.</small>
         <p id="recognition-status" role="status" hidden></p>
       </div>
       <div data-view="successful" hidden>
@@ -109,5 +110,36 @@
 <p class="help" id="find-help"></p><p id="find-error" role="alert" hidden></p>
 <div class="dialog-actions"><button type="button" class="pill ghost" id="find-cancel">Cancel</button><button class="pill primary" id="find-submit"></button></div>
 </form></dialog>
+<dialog id="tutorial" aria-labelledby="tutorial-title">
+  <div class="tutorial-top"><span class="eyebrow">How DJ Intake works · <span id="tutorial-count">1 of 4</span></span><button type="button" class="text-button" id="tutorial-skip">Skip</button></div>
+  <section class="tutorial-step" data-step="0">
+    <span class="step-num">01</span><h2 id="tutorial-title">Add a track</h2>
+    <p>Paste a link into <strong>Add to your library</strong> and click <strong>Add to queue</strong>. One track per line.</p>
+    <ul class="sources-list">
+      <li><b>YouTube</b><span>a single video or music.youtube.com link — not a playlist</span></li>
+      <li><b>SoundCloud</b><span>a single track link</span></li>
+      <li><b>Bandcamp</b><span>a single track link (…bandcamp.com/track/…)</span></li>
+      <li><b>Spotify</b><span>a track link — we look it up and you pick a recording</span></li>
+      <li><b>Song name</b><span>just type <code>Artist — Song</code></span></li>
+    </ul>
+    <p class="tip">Only need part of it? Tick <strong>Trim to timestamps</strong> and enter a start and end, like 00:50 → 02:30.</p>
+  </section>
+  <section class="tutorial-step" data-step="1" hidden>
+    <span class="step-num">02</span><h2>Pick a recording</h2>
+    <p>Song names and Spotify links can match several versions. When a track says <strong>Pick a recording</strong>, open <strong>Preview</strong> to listen, then click <strong>Choose</strong> on the one you want.</p>
+    <p>Each track moves through <strong>Queued → Finding → Downloading → Checking</strong>. You can close this browser tab — downloads keep going while DJ Intake is running and your Mac is awake.</p>
+  </section>
+  <section class="tutorial-step" data-step="2" hidden>
+    <span class="step-num">03</span><h2>Identify a song with Shazam</h2>
+    <p>Hear something you don’t know? Open <strong>Identify</strong>, click <strong>Set up recognition</strong> once and choose <strong>Add Shortcut</strong> in Apple Shortcuts.</p>
+    <p>Then play the song <strong>out loud</strong> — speakers or nearby, not headphones — and click <strong>Identify song</strong>. Allow the microphone the first time. The name is saved to <strong>Saved finds</strong>; click <strong>Find versions</strong> when you want to download it.</p>
+  </section>
+  <section class="tutorial-step" data-step="3" hidden>
+    <span class="step-num">04</span><h2>Find your files</h2>
+    <p>Finished tracks appear in <strong>Library</strong>, named <code>Artist_Song (Version)</code>. Click <strong>Show in Finder</strong> to jump to the file, or change the folder and format in <strong>Preferences ⚙</strong>.</p>
+    <p>Anything that fails lands in <strong>Failed</strong> with the reason and a <strong>Retry</strong> button. For quick adds, use the record icon in your Mac’s menu bar.</p>
+  </section>
+  <div class="tutorial-bottom"><div class="dots" aria-hidden="true"><i></i><i></i><i></i><i></i></div><div class="tutorial-actions"><button type="button" class="pill ghost" id="tutorial-back" hidden>Back</button><button type="button" class="pill primary" id="tutorial-next">Next</button></div></div>
+</dialog>
 <template id="empty-template"><div class="empty"><div class="record"><span></span></div><h3></h3><p></p></div></template>
 </body></html>
