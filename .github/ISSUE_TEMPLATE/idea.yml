@@ -1,0 +1,11 @@
+name: Suggest an improvement
+description: Share an idea for DJ Intake
+title: "[Idea]: "
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would you like to do?
+      description: Describe the workflow and what would make it easier.
+    validations:
+      required: true
