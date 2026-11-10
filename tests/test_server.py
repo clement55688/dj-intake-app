@@ -13,7 +13,7 @@ class HTTPTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp=tempfile.TemporaryDirectory()
-        code='import dj_intake.server as server; server.identify=lambda: "Avicii - Levels"; from dj_intake.server import start; from dj_intake.core import Worker; Worker.run=lambda self:None; import sys; start(sys.argv[1],0,False)'
+        code='import dj_intake.server as server; server.identify=lambda: "Avicii - Levels"; server.latest_release=lambda: {"version":"9.9.9","url":"https://example.invalid/release"}; from dj_intake.server import start; from dj_intake.core import Worker; Worker.run=lambda self:None; import sys; start(sys.argv[1],0,False)'
         cls.proc=subprocess.Popen([sys.executable,'-c',code,cls.tmp.name],stdout=subprocess.PIPE,stderr=subprocess.PIPE,text=True)
         cls.url=cls.proc.stdout.readline().strip().split('DJ Intake: ')[-1]
         if not cls.url.startswith('http://127.0.0.1:'):
@@ -90,6 +90,21 @@ class HTTPTests(unittest.TestCase):
         restored = self.request('/api/finds/restore', {'identity':identity,'name':deleted['name'],'found_at':deleted['found_at']})
         self.assertEqual((restored['identity'], restored['name'], restored['found_at']), (identity, 'Avicii - Levels (Edit)', deleted['found_at']))
         self.request('/api/finds/rename', {'identity':identity,'name':'Avicii - Levels'})
+
+    def test_update_banner_respects_setting_and_dev_copy_cannot_self_update(self):
+        state = self.request('/api/state')
+        self.assertEqual((state['update']['version'], state['update']['current']), ('9.9.9', state['version']))
+        self.assertFalse(state['can_update'])  # tests run from a git checkout of the private repo
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.request('/api/update/install', {})
+        self.assertEqual(ctx.exception.code, 400)
+        settings = state['settings']
+        try:
+            self.request('/api/settings', {**settings, 'update_check': False})
+            self.assertIsNone(self.request('/api/state')['update'])
+        finally:
+            self.request('/api/settings', {**settings, 'update_check': True})
+        self.assertEqual(self.request('/api/state')['update']['version'], '9.9.9')
 
     def test_mixed_batch_keeps_errors_and_valid_requests(self):
         result=self.request('/api/jobs',{'input':'Artist - Track\nhttps://127.0.0.1/private'})

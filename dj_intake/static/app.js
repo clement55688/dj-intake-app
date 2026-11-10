@@ -258,6 +258,8 @@ function render(force = false) {
   document.querySelectorAll('[data-count]').forEach(element => { element.textContent = counts[element.dataset.count]; });
   document.querySelectorAll('.tab-failed, .stat-failed').forEach(element => element.classList.toggle('alert', failed.length > 0));
   if (state.version) $('#version').textContent = 'v' + state.version;
+  $('#update-open').hidden = !state.update;
+  if (state.update) $('#update-label').textContent = 'Update to ' + state.update.version;
   liveCard(queue, finds, completed);
   const nudge = $('#failed-nudge');
   nudge.hidden = tab === 'failed' || !failed.length;
@@ -321,7 +323,7 @@ async function refresh() {
     $('#connection').textContent = 'Connected to your Mac';
     render();
   } catch (error) {
-    $('#connection').textContent = 'App disconnected — reopen DJ Intake';
+    $('#connection').textContent = updating ? 'Updating DJ Intake…' : 'App disconnected — reopen DJ Intake';
   }
 }
 
@@ -382,6 +384,7 @@ $('#settings-open').onclick = () => {
   if (!state) return;
   $('#output-dir').value = state.settings.output_dir;
   $('#profile').value = state.settings.profile;
+  $('#update-check').checked = state.update_check !== false;
   $('#settings').showModal();
 };
 $('#pick-folder').onclick = async () => {
@@ -398,7 +401,7 @@ $('#settings-close').onclick = () => $('#settings').close();
 $('#settings-form').onsubmit = async event => {
   event.preventDefault();
   try {
-    await api('settings', { output_dir: $('#output-dir').value, profile: $('#profile').value });
+    await api('settings', { output_dir: $('#output-dir').value, profile: $('#profile').value, update_check: $('#update-check').checked });
     $('#settings').close();
     toast('Preferences saved for new requests');
     await refresh();
@@ -413,6 +416,44 @@ $('#quit-app').onclick = async () => {
 };
 refresh();
 setInterval(refresh, 2500);
+
+// Update available: one click closes the app, runs the update script and reopens it.
+let updating = false;
+$('#update-open').onclick = () => {
+  const update = state?.update;
+  if (!update) return;
+  $('#update-version').textContent = update.version;
+  $('#update-from').textContent = 'You have ' + update.current + '.';
+  $('#update-notes').href = update.url;
+  $('#update-auto').hidden = !state.can_update;
+  $('#update-manual').hidden = state.can_update;
+  $('#update-now').hidden = !state.can_update;
+  $('#update-status').hidden = true;
+  $('#update-dialog').showModal();
+};
+$('#update-later').onclick = () => $('#update-dialog').close();
+$('#update-now').onclick = async () => {
+  const status = $('#update-status');
+  $('#update-now').disabled = true;
+  status.hidden = false;
+  status.textContent = 'Updating… this page reconnects by itself when DJ Intake reopens.';
+  try {
+    await api('update/install', {});
+    updating = true;
+    // The server restarts with a new session, so reload once it answers again.
+    const started = Date.now();
+    const wait = setInterval(async () => {
+      try {
+        const page = await fetch('/', { cache: 'no-store' });
+        if (page.ok && Date.now() - started > 8000) { clearInterval(wait); location.reload(); }
+      } catch { /* still updating */ }
+      if (Date.now() - started > 600000) { clearInterval(wait); status.textContent = 'Still updating. Reopen DJ Intake from your Desktop if this page doesn’t come back.'; }
+    }, 3000);
+  } catch (error) {
+    status.textContent = error.message;
+    $('#update-now').disabled = false;
+  }
+};
 
 // First-run tutorial. "Seen" is remembered in this browser only; the How to use button reopens it.
 const TUTORIAL_KEY = 'djintake.tutorial.v1';

@@ -48,6 +48,17 @@ $('#quick-form').onsubmit = async event => {
   } finally { $('#quick-submit').disabled = false; resize(); }
 };
 $('#quick-open').onclick = () => native('open');
+$('#quick-update').onclick = () => native('open');
+// Show a quiet line when a newer release exists; the library handles the update itself.
+fetch('/api/state', { headers: { 'X-Intake-Token': token } })
+  .then(response => response.ok ? response.json() : null)
+  .then(state => {
+    if (!state?.update) return;
+    $('#quick-update').textContent = '● Update to ' + state.update.version + ' available — open the library to install';
+    $('#quick-update').hidden = false;
+    resize();
+  })
+  .catch(() => {});
 // Short how-to: open on the first visit, then only when asked.
 const HELP_KEY = 'djintake.quickhelp.v1';
 function setHelp(open) {

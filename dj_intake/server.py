@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.parse import urlparse
 from .core import ROOT, Store, Worker, tool
 from .recognition import identify, open_setup
+from .updates import VERSION, UpdateChecker, installed_copy, latest_release, start_install
 
 
 class Server(ThreadingHTTPServer):
@@ -40,6 +41,10 @@ def start(home, port=8765, browser=True):
     token = secrets.token_urlsafe(32)
     folder_picker = threading.Lock()
     recognition = threading.Lock()
+    # Looked up through this module so tests can replace latest_release.
+    updates = UpdateChecker(fetch=lambda: latest_release())
+    can_update = installed_copy(ROOT)
+    update_enabled = lambda: store.setting('update_check', 'on') == 'on'
 
     class Handler(BaseHTTPRequestHandler):
         def log_message(self,*args):
@@ -70,7 +75,8 @@ def start(home, port=8765, browser=True):
                 if path == '/api/settings':
                     return self.reply(200, {'output_dir': store.setting('output_dir', str(Path.home()/'Music/DJ Intake Staging'))})
                 if path == '/api/state':
-                    return self.reply(200,{'jobs':store.jobs(),'finds':store.finds(),'settings':{'output_dir':store.setting('output_dir',str(Path.home()/'Music/DJ Intake Staging')),'profile':store.setting('profile','mp3')},'tools':{n:bool(tool(n)) for n in ('yt-dlp','ffmpeg','ffprobe')},'version':'0.4.1'})
+                    return self.reply(200,{'jobs':store.jobs(),'finds':store.finds(),'settings':{'output_dir':store.setting('output_dir',str(Path.home()/'Music/DJ Intake Staging')),'profile':store.setting('profile','mp3')},'tools':{n:bool(tool(n)) for n in ('yt-dlp','ffmpeg','ffprobe')},'version':VERSION,
+                        'update':updates.status(update_enabled()),'can_update':can_update,'update_check':update_enabled()})
                 return self.reply(404,{'error':'Not found'})
             assets = {'/':'index.html','/style.css':'style.css','/app.js':'app.js','/app-icon.png':'app-icon.png','/quick':'quick.html','/quick.js':'quick.js','/hero.jpg':'hero.jpg','/fonts/Geist.woff2':'fonts/Geist.woff2','/fonts/GeistMono.woff2':'fonts/GeistMono.woff2','/recognition-setup':'RECOGNITION.md'}
             if path not in assets:
@@ -150,6 +156,18 @@ def start(home, port=8765, browser=True):
                     store.choose(body['id'],body['url'])
                 elif path == '/api/settings':
                     store.save_settings(body)
+                    if 'update_check' in body:
+                        store.set_setting('update_check', 'on' if body['update_check'] is True else 'off')
+                elif path == '/api/update/check':
+                    updates.refresh(force=True)
+                    return self.reply(200, {'update': updates.status(update_enabled())})
+                elif path == '/api/update/install':
+                    if not can_update:
+                        raise ValueError('This copy wasn’t installed with the DJ Intake installer. Update it with git instead.')
+                    if any(job['status'] in ('queued','resolving','downloading','processing') for job in store.jobs()):
+                        raise ValueError('Let the current downloads finish, then update.')
+                    start_install(ROOT)
+                    threading.Timer(.5, self.server.shutdown).start()
                 elif path == '/api/pick-folder':
                     if sys.platform != 'darwin':
                         raise ValueError('The folder picker is available on macOS.')

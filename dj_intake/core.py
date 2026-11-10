@@ -257,6 +257,12 @@ class Store:
         folder = self.set_output_dir(values['output_dir'], profile=values['profile'])
         return folder
 
+    def set_setting(self, key, value):
+        if key not in ('update_check',):
+            raise ValueError('Unknown setting.')
+        with self.connect() as c:
+            c.execute('INSERT OR REPLACE INTO settings VALUES (?,?)', (key, value))
+
     def set_output_dir(self, value, *, profile=None):
         folder = Path(value).expanduser()
         if not folder.is_absolute():

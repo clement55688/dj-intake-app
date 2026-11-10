@@ -231,6 +231,19 @@ input:focus,select:focus{border-color:rgba(233,196,143,.55)}
 .dialog-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:26px}
 .dialog-actions .quit{margin-right:auto;color:var(--err);border-color:rgba(255,143,135,.25)}
 
+/* ---------- Update ---------- */
+.update-pill{gap:8px;padding:9px 15px;font-size:13px;background:rgba(233,196,143,.14);border:1px solid rgba(233,196,143,.5);color:var(--amber)}
+.update-pill:hover{background:rgba(233,196,143,.24)}
+.update-dot{width:7px;height:7px;border-radius:50%;background:var(--amber);box-shadow:0 0 0 0 rgba(233,196,143,.6);animation:ping 2.2s ease-out infinite}
+@keyframes ping{0%{box-shadow:0 0 0 0 rgba(233,196,143,.6)}70%,100%{box-shadow:0 0 0 8px rgba(233,196,143,0)}}
+.update-copy{font-size:15px;line-height:1.6;color:#d8cfc2}
+.update-code{margin:10px 0 0;padding:12px 14px;border:1px solid var(--line-strong);border-radius:10px;background:rgba(255,255,255,.03);font-family:var(--mono);font-size:12px;white-space:pre-wrap;overflow-wrap:anywhere;color:#e6ddd0}
+#update-status{margin:14px 0 0;font-size:14px;color:var(--amber)}
+#update-dialog .dialog-actions a{margin-right:auto}
+.check-row{display:flex!important;align-items:center;gap:10px;margin-top:22px!important;text-transform:none!important;letter-spacing:0!important;font-family:var(--sans)!important;font-size:14px!important;color:var(--text)!important}
+.check-row input{width:16px;height:16px;margin:0;accent-color:var(--amber)}
+.quick-update{display:block;width:100%;margin-top:12px;padding:10px 12px;border:1px solid rgba(233,196,143,.5);border-radius:10px;background:rgba(233,196,143,.12);color:var(--amber);font-size:12.5px;text-align:left}
+
 /* ---------- Tutorial ---------- */
 #tutorial{width:min(600px,94vw);padding:28px 30px 24px}
 .tutorial-top{display:flex;justify-content:space-between;align-items:center}

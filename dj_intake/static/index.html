@@ -10,6 +10,7 @@
     <button data-tab="failed" class="tab tab-failed">Failed <b data-count="failed">0</b></button>
   </nav>
   <div class="top-actions">
+    <button id="update-open" class="pill update-pill" hidden><i class="update-dot"></i><span id="update-label">Update available</span></button>
     <button id="help-open" class="pill ghost help-pill">How to use</button>
     <button id="settings-open" class="pill ghost icon" aria-label="Preferences" title="Preferences">⚙</button>
     <button id="folder" class="pill primary">Staging folder ↗</button>
@@ -103,13 +104,27 @@
 </main>
 <div id="toast" role="status" hidden></div>
 
-<dialog id="settings"><form id="settings-form"><div class="eyebrow">Make it yours</div><h2>Preferences</h2><label for="output-dir">Staging folder</label><div class="folder-row"><input id="output-dir" required><button type="button" class="pill ghost" id="pick-folder">Choose folder…</button></div><p class="help">Finished files land here. Keep a stable path after importing into your DJ software.</p><label for="profile">Output format</label><select id="profile"><option value="mp3">MP3 · 320 kbps compatibility copy</option><option value="aiff">AIFF · 16-bit / 44.1 kHz</option><option value="original">Original · preserve downloaded format</option></select><p class="help">Conversion cannot restore stream quality. Acquired originals are kept separately. Original mode preserves existing tags.</p><div class="dialog-actions"><button type="button" class="pill ghost quit" id="quit-app">Quit app</button><button type="button" class="pill ghost" id="settings-close">Cancel</button><button class="pill primary">Save preferences</button></div></form></dialog>
+<dialog id="settings"><form id="settings-form"><div class="eyebrow">Make it yours</div><h2>Preferences</h2><label for="output-dir">Staging folder</label><div class="folder-row"><input id="output-dir" required><button type="button" class="pill ghost" id="pick-folder">Choose folder…</button></div><p class="help">Finished files land here. Keep a stable path after importing into your DJ software.</p><label for="profile">Output format</label><select id="profile"><option value="mp3">MP3 · 320 kbps compatibility copy</option><option value="aiff">AIFF · 16-bit / 44.1 kHz</option><option value="original">Original · preserve downloaded format</option></select><p class="help">Conversion cannot restore stream quality. Acquired originals are kept separately. Original mode preserves existing tags.</p><label class="check-row"><input id="update-check" type="checkbox"> Check GitHub for updates</label><p class="help">DJ Intake asks GitHub for the latest version number a few times a day. Nothing else is sent.</p><div class="dialog-actions"><button type="button" class="pill ghost quit" id="quit-app">Quit app</button><button type="button" class="pill ghost" id="settings-close">Cancel</button><button class="pill primary">Save preferences</button></div></form></dialog>
 <dialog id="find-editor"><form id="find-form">
 <div class="eyebrow">Saved finds</div><h2 id="find-editor-title"></h2>
 <label for="find-value" id="find-label"></label><input id="find-value" required autocomplete="off">
 <p class="help" id="find-help"></p><p id="find-error" role="alert" hidden></p>
 <div class="dialog-actions"><button type="button" class="pill ghost" id="find-cancel">Cancel</button><button class="pill primary" id="find-submit"></button></div>
 </form></dialog>
+<dialog id="update-dialog" aria-labelledby="update-title">
+  <div class="eyebrow">Update available</div>
+  <h2 id="update-title">DJ Intake <span id="update-version"></span></h2>
+  <p class="help" id="update-from"></p>
+  <div id="update-auto">
+    <p class="update-copy">DJ Intake will close, install the update (usually under a minute), and reopen by itself. Your queue, saved finds and settings are kept.</p>
+  </div>
+  <div id="update-manual" hidden>
+    <p class="update-copy">This copy updates from Terminal. Quit DJ Intake, then run:</p>
+    <pre class="update-code">bash "$HOME/Library/Application Support/DJ Intake Source/scripts/update.command"</pre>
+  </div>
+  <p id="update-status" role="status" hidden></p>
+  <div class="dialog-actions"><a class="pill ghost" id="update-notes" target="_blank" rel="noopener noreferrer">What’s new ↗</a><button type="button" class="pill ghost" id="update-later">Later</button><button type="button" class="pill primary" id="update-now">Update now</button></div>
+</dialog>
 <dialog id="tutorial" aria-labelledby="tutorial-title">
   <div class="tutorial-top"><span class="eyebrow">How DJ Intake works · <span id="tutorial-count">1 of 4</span></span><button type="button" class="text-button" id="tutorial-skip">Skip</button></div>
   <section class="tutorial-step" data-step="0">

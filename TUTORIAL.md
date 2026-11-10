@@ -18,7 +18,9 @@ Let current jobs finish. Quit the menu-bar shortcut and use **Preferences → Qu
 bash "$HOME/Library/Application Support/DJ Intake Source/scripts/update.command"
 ```
 
-It pulls the newest changes from GitHub, refreshes dependencies, and rebuilds the Desktop app. It preserves your existing settings and queue. Open the Desktop app again when it finishes. Updates are manual.
+It pulls the newest changes from GitHub, refreshes dependencies, and rebuilds the Desktop app. It preserves your existing settings and queue. Open the Desktop app again when it finishes.
+
+From version 0.4.2 on, you don't need Terminal: when a new version is published, an **Update to …** button appears in the library's top bar (and a notice in the menu-bar panel). Click it, then **Update now** — DJ Intake closes, updates and reopens by itself. DJ Intake checks GitHub for the latest version number a few times a day; turn this off in **Preferences**.
 
 ## Feedback
 
