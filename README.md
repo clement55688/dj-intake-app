@@ -17,7 +17,7 @@ Double-click the Desktop app to open the webpage and keep a record icon in the m
 
 The interface opens at `http://127.0.0.1:8765` and runs entirely on your Mac. Closing the browser tab does not stop the worker. Use Preferences → Quit app to stop it. The Mac must stay awake to process tracks. The Desktop app is a locally signed native macOS menu-bar app with a quick-add popover. The full library interface runs locally in your browser. No cloud queue, Google Drive sync, or login-item service is enabled by this app.
 
-Build the Mac launcher with `python3 scripts/build_app.py`; open `outputs/DJ Intake.app`. Use `python3 scripts/build_app.py --desktop` to install a Desktop copy with the record icon. It launches this checkout, so keep the project folder in place. Rebuild the launcher if you move the project.
+Build the Mac launcher with `python3 scripts/build_app.py`; open `outputs/DJ Intake.app`. Use `python3 scripts/build_app.py --desktop` to put a link to it on the Desktop (a link, not a copy, so rebuilding and in-app updates never need permission to change the Desktop). It launches this checkout, so keep the project folder in place. Rebuild the launcher if you move the project.
 
 ## Requests
 

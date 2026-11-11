@@ -2,7 +2,7 @@
 
 The check sends one anonymous request to GitHub's public releases API, at most every
 few hours, and can be turned off in Preferences. Installing runs the same
-scripts/update.command a user would run by hand, then reopens the Desktop app.
+scripts/update.command a user would run by hand, then reopens the app.
 """
 from __future__ import annotations
 import json
@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 from urllib.request import Request, urlopen
 
-VERSION = '0.4.3'
+VERSION = '0.4.4'
 REPO = 'clement55688/dj-intake-app'
 API = f'https://api.github.com/repos/{REPO}/releases/latest'
 CHECK_EVERY = 6 * 3600
@@ -80,15 +80,16 @@ def installed_copy(root):
 def start_install(root):
     """Run the update in a detached shell that outlives this server, then reopen the app."""
     log = Path.home() / 'Library/Logs/dj-intake-update.log'
+    app = shlex.quote(str(root / 'outputs/DJ Intake.app'))
     script = f'''#!/bin/bash
 sleep 2
 osascript -e 'tell application id "local.djintake.launcher" to quit' >/dev/null 2>&1
 sleep 1
 if bash {shlex.quote(str(root / 'scripts/update.command'))} >{shlex.quote(str(log))} 2>&1; then
-  open "$HOME/Desktop/DJ Intake.app"
+  open {app}
 else
   osascript -e 'display alert "DJ Intake update didn’t finish" message "Your library is safe. Details are in ~/Library/Logs/dj-intake-update.log. Reopening the current version."' >/dev/null 2>&1
-  open "$HOME/Desktop/DJ Intake.app"
+  open {app}
 fi
 '''
     with tempfile.NamedTemporaryFile('w', suffix='.sh', delete=False) as handle:
