@@ -94,6 +94,27 @@ function stageBar(status) {
   return bar;
 }
 
+// Plain-language summary for common downloader errors; the raw text stays under "Details".
+function friendlyError(text) {
+  const t = String(text || '').toLowerCase();
+  if (/video unavailable|this video is unavailable|has been removed|no longer available/.test(t)) return 'This track is unavailable — it may have been removed, made private, or blocked where you are. Try another link.';
+  if (/private video|this track is private|\bis private\b/.test(t)) return 'This track is private. Try a public link.';
+  if (/http error 404|\bnot found\b/.test(t)) return 'That link doesn’t exist anymore. Check the link or try another source.';
+  if (/sign in to confirm|confirm your age|age[- ]restricted|inappropriate/.test(t)) return 'The site wants a sign-in or age check for this track, which DJ Intake can’t do. Try another upload.';
+  if (/http error 429|too many requests/.test(t)) return 'The site is limiting requests right now. Wait a few minutes, then Retry.';
+  if (/timed out|timeout|connection|network|resolve host|temporary failure/.test(t)) return 'Couldn’t reach the site. Check your internet connection, then Retry.';
+  if (/ffmpeg|ffprobe|yt-dlp is missing|deno/.test(t)) return 'A required audio tool is missing. Run setup again from the install guide, then Retry.';
+  if (/one-hour|too long|duration/.test(t)) return 'This recording is longer than DJ Intake’s one-hour limit. Use Trim to timestamps to take a section.';
+  return 'Something went wrong with this request. The details below say why; Retry or remove it.';
+}
+
+function removeButton(job, label) {
+  return button(label, async () => {
+    const removed = await api('jobs/remove', { id: job.id });
+    toast('Removed “' + (job.title || job.input) + '”.', { label: 'Undo', run: () => api('jobs/restore', removed) });
+  }, 'pill ghost danger');
+}
+
 function trackCard(job, compact = false) {
   const row = node('article', 'track ' + job.status + (compact ? ' compact' : ''));
   const top = node('div', 'track-top');
@@ -109,10 +130,20 @@ function trackCard(job, compact = false) {
   const body = node('div', 'track-body');
   row.append(body);
   if (!compact && stages.some(([key]) => key === job.status)) body.append(stageBar(job.status));
-  if (job.error && !compact) body.append(node('p', 'track-note', job.error));
+  if (job.status === 'failed' && !compact) {
+    body.append(node('p', 'track-summary', friendlyError(job.error)));
+    if (job.error) {
+      const details = node('details', 'track-details');
+      details.append(node('summary', '', 'Details'), node('p', 'track-note', job.error));
+      body.append(details);
+    }
+  } else if (job.error && !compact && job.status !== 'needs_selection') {
+    body.append(node('p', 'track-note', job.error));
+  }
 
   if (job.status === 'needs_selection') {
     const choices = node('div', 'candidates');
+    choices.append(node('div', 'eyebrow', 'Choose the recording to download'));
     for (const candidate of JSON.parse(job.candidates || '[]')) {
       const choice = node('div', 'candidate');
       const description = node('div');
@@ -120,10 +151,25 @@ function trackCard(job, compact = false) {
         node('p', '', candidate.title),
         node('div', 'meta', [candidate.artist, duration(candidate.duration)].filter(Boolean).join(' · ')),
       );
-      choice.append(description, button('Choose ↗', () => api('choose', { id: job.id, url: candidate.url }), 'pill primary'));
+      const actions = node('div', 'find-choice-actions');
+      const preview = node('a', 'pill ghost', 'Preview ↗');
+      preview.href = candidate.url;
+      preview.target = '_blank';
+      preview.rel = 'noopener noreferrer';
+      actions.append(preview, button('Choose', () => api('choose', { id: job.id, url: candidate.url }), 'pill primary'));
+      choice.append(description, actions);
       choices.append(choice);
     }
     body.append(choices);
+    const actions = node('div', 'track-actions');
+    actions.append(node('span', 'meta', 'None of these?'), removeButton(job, 'Remove request'));
+    body.append(actions);
+  }
+
+  if (job.status === 'queued' && !compact) {
+    const actions = node('div', 'track-actions');
+    actions.append(removeButton(job, 'Cancel'));
+    body.append(actions);
   }
 
   if (['successful', 'failed'].includes(job.status)) {
@@ -132,7 +178,7 @@ function trackCard(job, compact = false) {
       if (!compact) body.append(node('p', 'track-note path', job.output));
       actions.append(button('Show in Finder ↗', () => api('reveal', { id: job.id })));
     } else {
-      actions.append(button('Retry request ↻', () => api('retry', { id: job.id }), 'pill primary'));
+      actions.append(button('Retry ↻', () => api('retry', { id: job.id }), 'pill primary'), removeButton(job, 'Remove'));
     }
     (compact ? top : body).append(actions);
   }
@@ -261,6 +307,7 @@ function render(force = false) {
   $('#update-open').hidden = !state.update;
   if (state.update) $('#update-label').textContent = 'Update to ' + state.update.version;
   liveCard(queue, finds, completed);
+  $('#clear-failed').hidden = tab !== 'failed' || failed.length < 2;
   const nudge = $('#failed-nudge');
   nudge.hidden = tab === 'failed' || !failed.length;
   nudge.textContent = failed.length + (failed.length === 1 ? ' request needs' : ' requests need') + ' another try — see why and retry →';
@@ -331,6 +378,16 @@ for (const element of document.querySelectorAll('[data-tab]')) {
   element.onclick = () => setTab(element.dataset.tab, element.classList.contains('stat') ? $('#list').parentElement : null);
 }
 $('#failed-nudge').onclick = () => setTab('failed');
+$('#clear-failed').onclick = async () => {
+  try {
+    const { ids } = await api('jobs/clear-failed', {});
+    await refresh();
+    toast('Cleared ' + ids.length + ' failed request' + (ids.length === 1 ? '' : 's') + '.', {
+      label: 'Undo',
+      run: () => Promise.all(ids.map(id => api('jobs/restore', { id, status: 'failed' }))),
+    });
+  } catch (error) { toast(error.message); }
+};
 $('#hero-library').onclick = () => setTab('successful');
 const topbar = $('#topbar');
 const onScroll = () => topbar.classList.toggle('scrolled', window.scrollY > 24);
@@ -338,6 +395,58 @@ window.addEventListener('scroll', onScroll, { passive: true });
 onScroll();
 $('#hero-identify').onclick = () => { setTab('finds'); $('#identify-song').click(); };
 $('#trim-enabled').onchange = () => { $('#clip-fields').hidden = !$('#trim-enabled').checked; };
+
+// Tell people, as they type, whether DJ Intake can use what they pasted.
+function describeInput(raw) {
+  const lines = raw.split('\n').map(line => line.trim()).filter(Boolean);
+  if (!lines.length) return null;
+  if (lines.length > 1) return ['ok', lines.length + ' tracks — each line is added separately'];
+  let text = lines[0];
+  if (!text.includes('://') && /^(www\.|youtube\.com\/|youtu\.be\/|soundcloud\.com\/|open\.spotify\.com\/|[a-z0-9-]+\.bandcamp\.com\/)/i.test(text)) text = 'https://' + text;
+  if (!text.includes('://')) return ['ok', 'Song name — DJ Intake searches YouTube and you pick the recording'];
+  let url;
+  try { url = new URL(text); } catch { return ['warn', 'That doesn’t look like a complete link.']; }
+  const host = url.hostname.toLowerCase();
+  if (['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be'].includes(host)) {
+    const id = host === 'youtu.be' ? url.pathname.slice(1) : url.searchParams.get('v') || (url.pathname.match(/^\/(shorts|embed)\/([^/]+)/) || [])[2];
+    if (id && /^[\w-]{11}$/.test(id)) return ['ok', '✓ YouTube track' + (url.searchParams.has('list') ? ' — only this song, not the playlist' : '')];
+    return ['warn', 'That’s a YouTube playlist or channel. Paste a single video link.'];
+  }
+  if (['soundcloud.com', 'www.soundcloud.com', 'on.soundcloud.com'].includes(host)) {
+    return /\/sets\//.test(url.pathname) ? ['warn', 'That’s a SoundCloud playlist. Paste a single track link.'] : ['ok', '✓ SoundCloud track'];
+  }
+  if (host === 'open.spotify.com') {
+    return /\/track\//.test(url.pathname) ? ['ok', 'Spotify track — DJ Intake finds it on YouTube and you pick the recording'] : ['warn', 'Paste a single Spotify track link, not an album or playlist.'];
+  }
+  if (host.endsWith('.bandcamp.com')) {
+    return url.pathname.startsWith('/track/') ? ['ok', '✓ Bandcamp track'] : ['warn', 'Paste a single Bandcamp track link (…/track/…), not an album.'];
+  }
+  return ['warn', 'That site isn’t supported. Use YouTube, SoundCloud, Bandcamp, a Spotify track, or type the song name.'];
+}
+function showInputKind() {
+  const kind = describeInput($('#input').value);
+  const line = $('#input-kind');
+  line.hidden = !kind;
+  if (kind) { line.className = 'input-kind ' + kind[0]; line.textContent = kind[1]; }
+}
+$('#input').addEventListener('input', showInputKind);
+$('#input').addEventListener('keydown', event => {
+  if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); $('#add-form').requestSubmit(); }
+});
+$('#paste').onclick = async () => {
+  try {
+    const text = await navigator.clipboard.readText();
+    if (!text.trim()) { toast('Your clipboard is empty. Copy a track link first.'); return; }
+    const box = $('#input');
+    box.value = box.value.trim() ? box.value.trimEnd() + '\n' + text.trim() : text.trim();
+    showInputKind();
+    box.focus();
+  } catch {
+    $('#input').focus();
+    toast('Press ⌘V to paste into the box.');
+  }
+};
+$('#composer-help').onclick = () => openTutorial();
 $('#view-downloads').onclick = () => setTab('successful');
 $('#find-cancel').onclick = () => $('#find-editor').close();
 $('#find-form').onsubmit = async event => {
@@ -368,11 +477,14 @@ $('#add-form').onsubmit = async event => {
       toast(result.errors.map(item => item.error).join(' '));
     } else {
       $('#input').value = '';
+      showInputKind();
       $('#clip-start').value = '';
       $('#clip-end').value = '';
       $('#trim-enabled').checked = false;
       $('#clip-fields').hidden = true;
-      toast(result.added.length + ' request(s) added');
+      const count = result.added.length;
+      const needsPick = result.added.some(job => job.source === 'Search' || job.source === 'Spotify lookup');
+      toast((count === 1 ? 'Added to your queue.' : count + ' tracks added to your queue.') + (needsPick ? ' You’ll pick the recording below.' : ''));
     }
     setTab('queue');
     await refresh();
@@ -480,6 +592,8 @@ $('#tutorial').addEventListener('cancel', () => { try { localStorage.setItem(TUT
 let seenTutorial = false;
 try { seenTutorial = localStorage.getItem(TUTORIAL_KEY) === '1'; } catch { /* ignore */ }
 if (!seenTutorial || new URLSearchParams(location.search).has('tour')) openTutorial();
+else $('#input').focus();
+$('#tutorial').addEventListener('close', () => { if (tab === 'queue') $('#input').focus(); });
 
 
 $('#identify-song').onclick = async () => {

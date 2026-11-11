@@ -28,16 +28,12 @@
       <h1 class="reveal" data-view="successful" hidden><span>Every file,</span> <span>ready for the decks.</span></h1>
       <h1 class="reveal" data-view="failed" hidden><span>Nothing is lost.</span> <span>Try it again.</span></h1>
 
-      <div class="live-card" id="live-card" hidden>
-        <span class="live-label"><span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span id="live-label"></span></span>
-        <strong id="live-title"></strong>
-        <span id="live-detail"></span>
-      </div>
 
       <section class="composer" id="queue-composer" data-view="queue">
         <form id="add-form">
-          <label for="input" class="eyebrow">Add to your library</label>
-          <textarea id="input" rows="2" placeholder="Paste a track URL or type Artist — Song title" required></textarea>
+          <div class="composer-top"><label for="input" class="eyebrow">Paste a link or type a song</label><button type="button" class="paste-button" id="paste">Paste ⌘V</button></div>
+          <textarea id="input" rows="2" placeholder="https://youtube.com/watch?v=…   or   Artist — Song title" required autocomplete="off" spellcheck="false"></textarea>
+          <p id="input-kind" class="input-kind" role="status" hidden></p>
           <label class="trim-toggle"><input id="trim-enabled" type="checkbox"> Trim to timestamps <span>Optional</span></label>
           <div class="clip-inputs" id="clip-fields" hidden>
             <div><label for="clip-start">Start</label><input id="clip-start" type="text" inputmode="text" placeholder="00:00" autocomplete="off"></div>
@@ -46,12 +42,17 @@
             <p>Download just this section. MM:SS or HH:MM:SS.</p>
           </div>
           <div class="composer-bottom">
-            <span class="sources">YouTube · SoundCloud · Bandcamp · Spotify lookup</span>
-            <button class="pill primary" type="submit" id="add">Add to queue <span aria-hidden="true">↗</span></button>
+            <span class="sources">YouTube · SoundCloud · Bandcamp · Spotify · song names</span>
+            <span class="submit-wrap"><kbd>⌘↩</kbd><button class="pill primary" type="submit" id="add">Add to queue <span aria-hidden="true">↗</span></button></span>
           </div>
         </form>
-        <div class="composer-note">One track per line. Playlist links download only the current song. Song names open a recording picker.</div>
+        <div class="composer-note">One track per line. Playlists aren’t supported — paste single tracks. <button type="button" class="link" id="composer-help">How it works</button></div>
       </section>
+      <div class="live-card" id="live-card" hidden>
+        <span class="live-label"><span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span id="live-label"></span></span>
+        <strong id="live-title"></strong>
+        <span id="live-detail"></span>
+      </div>
     </div>
 
     <aside class="hero-side">
@@ -92,7 +93,7 @@
   </section>
 
   <section class="list-section">
-    <div class="list-heading"><div><span class="eyebrow" id="list-eyebrow">Queue</span><h2 id="list-title">In the queue</h2><span class="sub" id="list-subtitle">Your next additions, from request to ready.</span></div><span class="count-pill" id="total">0 tracks</span></div>
+    <div class="list-heading"><div><span class="eyebrow" id="list-eyebrow">Queue</span><h2 id="list-title">In the queue</h2><span class="sub" id="list-subtitle">Your next additions, from request to ready.</span></div><div class="recent-heading-actions"><span class="count-pill" id="total">0 tracks</span><button id="clear-failed" class="pill ghost danger" hidden>Clear all</button></div></div>
     <div id="list" class="rows"></div>
   </section>
 

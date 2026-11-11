@@ -138,6 +138,13 @@ def start(home, port=8765, browser=True):
                     return self.reply(200, match)
                 if path == '/api/recognition/setup':
                     return self.reply(200, {'installed': open_setup()})
+                if path == '/api/jobs/remove':
+                    return self.reply(200, {'id': body['id'], 'status': store.remove_job(body['id'])})
+                if path == '/api/jobs/restore':
+                    store.restore_job(body['id'], body.get('status'))
+                    return self.reply(200, {'ok': True})
+                if path == '/api/jobs/clear-failed':
+                    return self.reply(200, {'ids': store.clear_failed()})
                 if path == '/api/retry':
                     store.retry(body['id'])
                 elif path == '/api/finds/rename':

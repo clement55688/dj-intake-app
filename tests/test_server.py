@@ -106,6 +106,27 @@ class HTTPTests(unittest.TestCase):
             self.request('/api/settings', {**settings, 'update_check': True})
         self.assertEqual(self.request('/api/state')['update']['version'], '9.9.9')
 
+    def test_remove_and_restore_requests_and_clear_failed(self):
+        from dj_intake.core import Store
+        store = Store(self.tmp.name)
+        added = self.request('/api/jobs', {'input':'Remove Me - Test Song'})['added'][0]
+        removed = self.request('/api/jobs/remove', {'id':added['id']})
+        self.assertEqual(removed['status'], 'queued')
+        self.assertEqual(store.get(added['id'])['status'], 'cancelled')
+        self.assertFalse(store.claim(added['id']))  # a removed request is never started
+        self.request('/api/jobs/restore', {'id':added['id'], 'status':'queued'})
+        self.assertEqual(store.get(added['id'])['status'], 'queued')
+        store.update(added['id'], status='successful')
+        with self.assertRaises(urllib.error.HTTPError) as ctx:
+            self.request('/api/jobs/remove', {'id':added['id']})  # finished downloads stay
+        self.assertEqual(ctx.exception.code, 400)
+        failed = [self.request('/api/jobs', {'input':f'Broken {n} - Song'})['added'][0]['id'] for n in (1, 2)]
+        for ident in failed:
+            store.update(ident, status='failed', error='boom')
+        cleared = self.request('/api/jobs/clear-failed', {})['ids']
+        self.assertTrue(set(failed) <= set(cleared))
+        self.assertEqual({store.get(i)['status'] for i in failed}, {'cancelled'})
+
     def test_mixed_batch_keeps_errors_and_valid_requests(self):
         result=self.request('/api/jobs',{'input':'Artist - Track\nhttps://127.0.0.1/private'})
         self.assertEqual(len(result['added']),1)

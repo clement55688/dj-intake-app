@@ -317,6 +317,43 @@ class Store:
         self.update(ident, status='queued', error='')
         self.wake.set()
 
+    REMOVABLE = ('failed', 'needs_selection', 'queued')
+
+    def remove_job(self, ident):
+        """Take a failed, unpicked or not-yet-started request off the list. Returns its previous status for Undo."""
+        with self.connect() as c:
+            row = c.execute('SELECT status FROM jobs WHERE id=?', (ident,)).fetchone()
+            if not row:
+                raise ValueError('Request not found.')
+            if row['status'] not in self.REMOVABLE:
+                raise ValueError('Only failed, waiting or not-yet-started requests can be removed.')
+            if not c.execute("UPDATE jobs SET status='cancelled', updated=? WHERE id=? AND status=?", (time.time(), ident, row['status'])).rowcount:
+                raise ValueError('That request just started. Try again when it finishes.')
+            return row['status']
+
+    def restore_job(self, ident, status):
+        """Undo for remove_job."""
+        if status not in self.REMOVABLE:
+            raise ValueError('Unknown request status.')
+        with self.connect() as c:
+            if not c.execute("UPDATE jobs SET status=?, updated=? WHERE id=? AND status='cancelled'", (status, time.time(), ident)).rowcount:
+                raise ValueError('That request can no longer be restored.')
+        if status == 'queued':
+            self.wake.set()
+
+    def clear_failed(self):
+        where = "status='failed' AND NOT (find_identity IS NOT NULL AND source='Search')"
+        with self.connect() as c:
+            c.execute('BEGIN IMMEDIATE')
+            ids = [row['id'] for row in c.execute('SELECT id FROM jobs WHERE ' + where)]
+            c.execute("UPDATE jobs SET status='cancelled', updated=? WHERE " + where, (time.time(),))
+            return ids
+
+    def claim(self, ident):
+        """Start a queued request unless it was removed in the meantime."""
+        with self.connect() as c:
+            return bool(c.execute("UPDATE jobs SET status='resolving', error='', updated=? WHERE id=? AND status='queued'", (time.time(), ident)).rowcount)
+
     def choose(self, ident, url):
         row = self.get(ident)
         if row['status'] != 'needs_selection':
@@ -392,9 +429,10 @@ class Worker:
 
     def process(self, job):
         s, ident = self.store, job['id']
+        if not s.claim(ident):
+            return
         jobdir = s.home / 'jobs' / ident
         jobdir.mkdir(parents=True, exist_ok=True)
-        s.update(ident, status='resolving', error='')
         if job['source'] in ('Search','Spotify lookup'):
             query = job['url']
             if job['source'] == 'Spotify lookup':

@@ -33,7 +33,7 @@ def main():
     icon=make_icon(root/'work/DJIntake.icns')
     shutil.copyfile(icon,output/'Contents/Resources/DJIntake.icns')
     plist=output/'Contents/Info.plist'
-    data={'CFBundleExecutable':'DJIntake','CFBundlePackageType':'APPL','CFBundleVersion':'0.4.2','CFBundleShortVersionString':'0.4.2','LSUIElement':True,'LSMinimumSystemVersion':'12.0','NSHighResolutionCapable':True,'NSAppTransportSecurity':{'NSAllowsLocalNetworking':True},'DJIntakeProjectRoot':str(root)}
+    data={'CFBundleExecutable':'DJIntake','CFBundlePackageType':'APPL','CFBundleVersion':'0.4.3','CFBundleShortVersionString':'0.4.3','LSUIElement':True,'LSMinimumSystemVersion':'12.0','NSHighResolutionCapable':True,'NSAppTransportSecurity':{'NSAllowsLocalNetworking':True},'DJIntakeProjectRoot':str(root)}
     data.update(CFBundleIconFile='DJIntake',CFBundleIdentifier='local.djintake.launcher',CFBundleDisplayName='DJ Intake',CFBundleName='DJ Intake')
     plist.write_bytes(plistlib.dumps(data))
     subprocess.run(['codesign','--force','--sign','-',str(output)],check=True)

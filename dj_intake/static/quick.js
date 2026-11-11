@@ -9,6 +9,44 @@ function native(action, extra = {}) {
 function resize() {
   requestAnimationFrame(() => native('resize', { height: $('.quick-main').scrollHeight + 4 }));
 }
+// Same check as the library: say whether DJ Intake can use what was pasted.
+function describeInput(raw) {
+  const lines = raw.split('\n').map(line => line.trim()).filter(Boolean);
+  if (!lines.length) return null;
+  if (lines.length > 1) return ['ok', lines.length + ' tracks — each line is added separately'];
+  let text = lines[0];
+  if (!text.includes('://') && /^(www\.|youtube\.com\/|youtu\.be\/|soundcloud\.com\/|open\.spotify\.com\/|[a-z0-9-]+\.bandcamp\.com\/)/i.test(text)) text = 'https://' + text;
+  if (!text.includes('://')) return ['ok', 'Song name — DJ Intake searches YouTube and you pick the recording'];
+  let url;
+  try { url = new URL(text); } catch { return ['warn', 'That doesn’t look like a complete link.']; }
+  const host = url.hostname.toLowerCase();
+  if (['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be'].includes(host)) {
+    const id = host === 'youtu.be' ? url.pathname.slice(1) : url.searchParams.get('v') || (url.pathname.match(/^\/(shorts|embed)\/([^/]+)/) || [])[2];
+    if (id && /^[\w-]{11}$/.test(id)) return ['ok', '✓ YouTube track' + (url.searchParams.has('list') ? ' — only this song, not the playlist' : '')];
+    return ['warn', 'That’s a YouTube playlist or channel. Paste a single video link.'];
+  }
+  if (['soundcloud.com', 'www.soundcloud.com', 'on.soundcloud.com'].includes(host)) {
+    return /\/sets\//.test(url.pathname) ? ['warn', 'That’s a SoundCloud playlist. Paste a single track link.'] : ['ok', '✓ SoundCloud track'];
+  }
+  if (host === 'open.spotify.com') {
+    return /\/track\//.test(url.pathname) ? ['ok', 'Spotify track — DJ Intake finds it on YouTube and you pick the recording'] : ['warn', 'Paste a single Spotify track link, not an album or playlist.'];
+  }
+  if (host.endsWith('.bandcamp.com')) {
+    return url.pathname.startsWith('/track/') ? ['ok', '✓ Bandcamp track'] : ['warn', 'Paste a single Bandcamp track link (…/track/…), not an album.'];
+  }
+  return ['warn', 'That site isn’t supported. Use YouTube, SoundCloud, Bandcamp, a Spotify track, or type the song name.'];
+}
+function showKind() {
+  const kind = describeInput($('#quick-input').value);
+  const line = $('#quick-kind');
+  line.hidden = !kind;
+  if (kind) { line.className = 'input-kind ' + kind[0]; line.textContent = kind[1]; }
+  resize();
+}
+$('#quick-input').addEventListener('input', showKind);
+$('#quick-input').addEventListener('keydown', event => {
+  if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) { event.preventDefault(); $('#quick-form').requestSubmit(); }
+});
 $('#quick-trim').onchange = () => {
   $('#quick-fields').hidden = !$('#quick-trim').checked;
   resize();
@@ -40,6 +78,7 @@ $('#quick-form').onsubmit = async event => {
     status.textContent = existing ? 'Already downloaded. Open your library to find it.' : needsChoice ? 'Added. Open your library to choose a recording.' : 'Added to queue. We’ll take it from here.';
     status.className = 'success';
     $('#quick-form').reset();
+    showKind();
     $('#quick-fields').hidden = true;
     $('#quick-input').focus();
   } catch (error) {
