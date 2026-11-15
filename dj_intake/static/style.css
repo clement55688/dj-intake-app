@@ -389,3 +389,33 @@ kbd{font-family:var(--mono);font-size:11px;color:var(--dim);border:1px solid var
 .track-actions .meta{align-self:center;margin-right:4px}
 .candidates>.eyebrow{margin:14px 0 2px;color:var(--amber)}
 @media (max-width:620px){.composer textarea{font-size:18px}kbd{display:none}}
+
+/* Sprint: every file ready to play */
+.library-check { display: grid; gap: 10px; text-align: left; }
+.library-check p { margin: 0; }
+.library-check-row { display: flex; gap: 14px; align-items: center; justify-content: space-between; flex-wrap: wrap; padding-top: 10px; border-top: 1px solid var(--line, rgba(255,255,255,.08)); }
+.library-check-row .track-actions { margin: 0; }
+.already-have { display: grid; gap: 8px; }
+.buy-links { margin: 6px 0 10px; }
+.buy-links a { color: var(--amber); text-decoration: none; margin-right: 6px; }
+.buy-links a:hover { text-decoration: underline; }
+.status.already_have { color: var(--amber); }
+
+/* Playlist checklist */
+#playlist-dialog { width: min(640px, calc(100vw - 32px)); }
+.playlist-tools { display: flex; gap: 14px; margin: 4px 0 10px; }
+.playlist-list { max-height: min(52vh, 460px); overflow-y: auto; display: grid; gap: 2px; border-top: 1px solid var(--line, rgba(255,255,255,.08)); border-bottom: 1px solid var(--line, rgba(255,255,255,.08)); padding: 6px 0; }
+.playlist-row { display: flex; gap: 12px; align-items: flex-start; padding: 8px 4px; border-radius: 8px; cursor: pointer; }
+.playlist-row:hover { background: rgba(255,255,255,.04); }
+.playlist-row input { margin-top: 3px; accent-color: var(--amber); }
+.playlist-row > span { display: grid; gap: 2px; min-width: 0; }
+.playlist-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.playlist-row.have .playlist-name { opacity: .6; }
+dialog label.playlist-row{display:flex;margin:0;font-family:var(--sans);font-size:15px;letter-spacing:normal;text-transform:none;color:var(--text)}
+.playlist-row input{width:16px;height:16px;flex:none;padding:0}
+.playlist-row .meta{font-size:12.5px}
+
+/* Send from iPhone */
+.phone-steps { display: grid; gap: 12px; padding-left: 20px; margin: 0 0 14px; color: var(--muted); line-height: 1.5; }
+.phone-steps b { color: var(--text); font-weight: 500; }
+.phone-status { font-family: var(--mono); font-size: 12px; color: var(--amber); margin: 12px 0 0; }

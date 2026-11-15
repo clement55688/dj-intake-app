@@ -15,8 +15,51 @@ import uuid
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 from urllib.request import urlopen, Request
+from . import tags
+from .library import LibraryIndex
 
 ROOT = Path(__file__).resolve().parent.parent
+DEFAULT_OUTPUT = Path.home() / 'Music/DJ Intake Staging'
+PREVIEW_MESSAGE = 'The site only shares a 30-second preview of this track, so DJ Intake didn’t save it. Search for the song by name instead.'
+
+
+def library_folders(store):
+    """Where 'you already have this' looks: your Music folder plus the download folder."""
+    music = Path.home() / 'Music'
+    output = Path(store.setting('output_dir', str(DEFAULT_OUTPUT))).expanduser()
+    return [music] if output == music or music in output.parents else [music, output]
+
+
+def download_problem(info, warnings=''):
+    """Why a track can't be downloaded in full from this source: 'locked', 'preview' or None."""
+    formats = info.get('formats') or []
+    usable = [f for f in formats if not f.get('has_drm')]
+    if not usable and (formats or 'drm' in warnings.lower()):
+        return 'locked'
+    if usable and all('preview' in str(f.get('format_id', '')).lower() for f in usable):
+        return 'preview'
+    return None
+
+
+LOSSLESS = {'flac', 'alac', 'wavpack', 'ape', 'tta'}
+CODEC_NAMES = {'aac': 'AAC', 'opus': 'Opus', 'mp3': 'MP3', 'vorbis': 'Vorbis', 'flac': 'FLAC', 'alac': 'ALAC'}
+
+
+def describe_quality(stream, container):
+    """{'label': 'AAC 160 kbps', 'tier': 'streaming'} for the audio as it came from the site."""
+    codec = str(stream.get('codec_name') or '')
+    name = CODEC_NAMES.get(codec, 'WAV/AIFF' if codec.startswith('pcm_') else codec.upper() or 'Audio')
+    if codec.startswith('pcm_') or codec in LOSSLESS:
+        return {'label': name + ' lossless', 'tier': 'lossless'}
+    exact = stream.get('bit_rate')
+    try:
+        kbps = round(int(exact or container.get('bit_rate')) / 1000)
+    except (TypeError, ValueError):
+        return {'label': name, 'tier': 'unknown'}
+    if not exact:  # estimated from the file size, which includes container overhead: round down
+        kbps = kbps // 10 * 10
+    tier = 'high' if kbps >= 256 else 'streaming' if kbps >= 128 else 'low'
+    return {'label': f'{name} {"" if exact else "~"}{kbps} kbps', 'tier': tier}
 
 
 def clean(text, limit=160):
@@ -147,6 +190,35 @@ def route(value):
     raise ValueError('Supported: YouTube, SoundCloud, Bandcamp track URLs, Spotify track references, or song names.')
 
 
+PLAYLIST_LIMIT = 100
+
+
+def playlist_link(value):
+    """'youtube' | 'soundcloud' | 'bandcamp' when the text is a whole playlist, set or album link."""
+    value = value.strip()
+    if '://' not in value:
+        value = 'https://' + value
+    try:
+        u = urlparse(value)
+    except ValueError:
+        return None
+    host = (u.hostname or '').lower()
+    if host in ('youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com') and u.path == '/playlist' and parse_qs(u.query).get('list'):
+        return 'youtube'
+    if host in ('soundcloud.com', 'www.soundcloud.com', 'm.soundcloud.com') and re.fullmatch(r'/[^/]+/sets/[^/]+/?', u.path):
+        return 'soundcloud'
+    if host.endswith('.bandcamp.com') and u.path.startswith('/album/'):
+        return 'bandcamp'
+    return None
+
+
+def split_title(artist, title):
+    """YouTube titles often carry 'Artist - Title'; use that when no artist is given."""
+    if not artist and ' - ' in (title or ''):
+        artist, title = title.split(' - ', 1)
+    return tidy_track(artist, title)
+
+
 class Store:
     def __init__(self, home):
         self.home = Path(home).expanduser().resolve()
@@ -160,6 +232,12 @@ class Store:
                     c.execute(f'ALTER TABLE jobs ADD COLUMN {column} REAL')
             if 'find_identity' not in columns:
                 c.execute('ALTER TABLE jobs ADD COLUMN find_identity TEXT')
+            # hint: why a recording must be picked ('locked', 'preview'); match_path: the file you
+            # already have; source_quality: JSON label of the downloaded audio.
+            for column, kind in (('hint', "TEXT DEFAULT ''"), ('match_path', "TEXT DEFAULT ''"),
+                                 ('source_quality', "TEXT DEFAULT ''"), ('allow_duplicate', 'INTEGER DEFAULT 0')):
+                if column not in columns:
+                    c.execute(f'ALTER TABLE jobs ADD COLUMN {column} {kind}')
             c.execute('CREATE TABLE IF NOT EXISTS finds (identity TEXT PRIMARY KEY, name TEXT NOT NULL, found_at REAL NOT NULL)')
             c.execute('CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT)')
             c.execute("UPDATE jobs SET status='queued', error='Resumed after app restart' WHERE status IN ('resolving','downloading','processing')")
@@ -258,7 +336,7 @@ class Store:
         return folder
 
     def set_setting(self, key, value):
-        if key not in ('update_check',):
+        if key not in ('update_check', 'serato_crate', 'phone_inbox'):
             raise ValueError('Unknown setting.')
         with self.connect() as c:
             c.execute('INSERT OR REPLACE INTO settings VALUES (?,?)', (key, value))
@@ -299,7 +377,8 @@ class Store:
         return dict(row)
 
     def update(self, ident, **values):
-        allowed = {'status','title','artist','error','candidates','output','source_key','source_hash','output_hash','url','source'}
+        allowed = {'status','title','artist','error','candidates','output','source_key','source_hash','output_hash','url','source',
+                   'hint','match_path','source_quality'}
         if not values.keys() <= allowed:
             raise ValueError('Unknown job field')
         values['updated'] = time.time()
@@ -317,7 +396,27 @@ class Store:
         self.update(ident, status='queued', error='')
         self.wake.set()
 
-    REMOVABLE = ('failed', 'needs_selection', 'queued')
+    REMOVABLE = ('failed', 'needs_selection', 'queued', 'already_have')
+
+    def keep_duplicate(self, ident):
+        """Download a track even though a matching file is already in the library."""
+        with self.connect() as c:
+            if not c.execute("UPDATE jobs SET status='queued', allow_duplicate=1, match_path='', error='', updated=? WHERE id=? AND status='already_have'",
+                             (time.time(), ident)).rowcount:
+                raise ValueError('This request is no longer waiting.')
+        self.wake.set()
+
+    def library_ok(self):
+        """Files the person said are fine, so the preview check stops flagging them."""
+        try:
+            return set(json.loads(self.setting('library_ok', '[]')))
+        except ValueError:
+            return set()
+
+    def mark_library_ok(self, path):
+        paths = sorted(self.library_ok() | {str(path)})[-500:]
+        with self.connect() as c:
+            c.execute('INSERT OR REPLACE INTO settings VALUES (?,?)', ('library_ok', json.dumps(paths)))
 
     def remove_job(self, ident):
         """Take a failed, unpicked or not-yet-started request off the list. Returns its previous status for Undo."""
@@ -364,7 +463,7 @@ class Store:
             raise ValueError('Choose a listed recording.')
         source, url = route(url)
         with self.connect() as c:
-            if not c.execute("UPDATE jobs SET source=?,url=?,title=?,status='queued',error='',updated=? WHERE id=? AND status='needs_selection'",
+            if not c.execute("UPDATE jobs SET source=?,url=?,title=?,status='queued',error='',hint='',updated=? WHERE id=? AND status='needs_selection'",
                              (source, url, chosen['title'], time.time(), ident)).rowcount:
                 raise ValueError('This request is no longer waiting for a selection.')
         self.wake.set()
@@ -390,8 +489,9 @@ def execute(args, log, timeout=1200):
 
 
 class Worker:
-    def __init__(self, store):
+    def __init__(self, store, library=None):
         self.store = store
+        self.library = library or LibraryIndex(lambda: library_folders(store))
         self.stop = threading.Event()
 
     def run(self):
@@ -415,17 +515,83 @@ class Worker:
             args += ['--js-runtimes', 'deno:'+deno]
         return args
 
-    def metadata(self, value, jobdir, flat=False):
+    def metadata(self, value, jobdir, flat=False, formats_optional=False):
+        """yt-dlp's JSON for a link. With formats_optional, a track that can't be downloaded
+        (for example DRM-locked) still returns its title, with warnings under '_warnings'."""
         target = jobdir / 'metadata.json'
         errors = jobdir / 'metadata.log'
         env = os.environ.copy()
         env['PATH'] = str(Path.home()/'.stacher') + os.pathsep + env.get('PATH','')
-        args = self.yt()+['--dump-single-json','--skip-download']+(['--flat-playlist'] if flat else [])+['--',value]
+        args = self.yt()+['--dump-single-json','--skip-download']+(['--flat-playlist'] if flat else [])
+        args += (['--ignore-no-formats-error'] if formats_optional else [])+['--',value]
         with target.open('w') as out, errors.open('w') as err:
             result = subprocess.run(args, stdout=out, stderr=err, timeout=180, stdin=subprocess.DEVNULL, env=env)
         if result.returncode:
             raise RuntimeError(errors.read_text(errors='replace')[-2500:])
-        return json.loads(target.read_text())
+        info = json.loads(target.read_text())
+        if formats_optional:
+            info['_warnings'] = errors.read_text(errors='replace')[-2500:]
+        return info
+
+    def playlist(self, url):
+        """The tracks in a playlist, set or album, each marked if you already have it. Nothing is downloaded."""
+        kind = playlist_link(url)
+        if not kind:
+            raise ValueError('Paste a YouTube playlist, SoundCloud set or Bandcamp album link.')
+        if '://' not in url:
+            url = 'https://' + url.strip()
+        args = [a for a in self.yt() if a != '--no-playlist']
+        args[args.index('--use-extractors') + 1] = '^(youtube:tab|youtube:playlist|soundcloud:set|Bandcamp:album)$'
+        args += ['--yes-playlist', '--playlist-end', str(PLAYLIST_LIMIT), '--dump-single-json', '--skip-download']
+        # SoundCloud's quick listing has no titles, so read each track (without its audio formats).
+        args += ['--extractor-args', 'soundcloud:formats=none', '--ignore-no-formats-error'] if kind == 'soundcloud' else ['--flat-playlist']
+        env = os.environ.copy()
+        env['PATH'] = str(Path.home()/'.stacher') + os.pathsep + env.get('PATH','')
+        result = subprocess.run(args + ['--', url], capture_output=True, text=True, timeout=240, stdin=subprocess.DEVNULL, env=env)
+        if result.returncode:
+            raise ValueError('Couldn’t open that playlist. Check that it’s public, then try again.')
+        data = json.loads(result.stdout)
+        self.library.ensure_fresh()
+        tracks = []
+        for entry in data.get('entries') or []:
+            if not entry:
+                continue
+            link = entry.get('webpage_url') or entry.get('url') or ''
+            if kind == 'youtube' and re.fullmatch(r'[A-Za-z0-9_-]{11}', str(entry.get('id', ''))):
+                link = 'https://www.youtube.com/watch?v=' + entry['id']
+            try:
+                route(link)
+            except ValueError:
+                continue
+            title = entry.get('track') or entry.get('title') or ''
+            if not title or title in ('[Private video]', '[Deleted video]'):
+                continue
+            artist, title = split_title(entry.get('artist') or (data.get('uploader') if kind == 'bandcamp' else ''), title)
+            tracks.append({'url': link, 'title': title, 'artist': artist, 'duration': entry.get('duration'),
+                           'have': bool(self.library.find(artist, title))})
+        if not tracks:
+            raise ValueError('That playlist has no tracks DJ Intake can download.')
+        return {'title': data.get('title') or 'Playlist', 'tracks': tracks, 'more': len(data.get('entries') or []) >= PLAYLIST_LIMIT}
+
+    def search(self, query, jobdir):
+        """Up to five YouTube recordings for 'Artist - Title', for the person to pick from."""
+        data = self.metadata('ytsearch5:'+query, jobdir, flat=True)
+        candidates = []
+        for entry in data.get('entries', []):
+            if not entry or not re.fullmatch(r'[A-Za-z0-9_-]{11}', str(entry.get('id', ''))):
+                continue
+            candidates.append({'title':entry.get('title','Untitled'), 'artist':entry.get('channel') or entry.get('uploader') or '',
+                               'duration':entry.get('duration'), 'url':'https://www.youtube.com/watch?v='+entry['id']})
+        if not candidates:
+            raise RuntimeError('No recordings found. Try Artist - Title, including the remix name.')
+        return candidates
+
+    def already_have(self, job, artist, title):
+        """The library file that looks like this track, unless the person asked to download anyway."""
+        if job.get('allow_duplicate') or job.get('clip_end') is not None:
+            return None
+        self.library.ensure_fresh()
+        return self.library.find(artist, title)
 
     def process(self, job):
         s, ident = self.store, job['id']
@@ -444,18 +610,15 @@ class Worker:
                 if not query:
                     raise RuntimeError('Spotify metadata is unavailable. Enter Artist - Title instead.')
                 s.update(ident, title=query)
-            data = self.metadata('ytsearch5:'+query, jobdir, flat=True)
-            candidates = []
-            for entry in data.get('entries', []):
-                if not entry or not re.fullmatch(r'[A-Za-z0-9_-]{11}', str(entry.get('id', ''))):
-                    continue
-                candidates.append({'title':entry.get('title','Untitled'), 'artist':entry.get('channel') or entry.get('uploader') or '',
-                                   'duration':entry.get('duration'), 'url':'https://www.youtube.com/watch?v='+entry['id']})
-            if not candidates:
-                raise RuntimeError('No recordings found. Try Artist - Title, including the remix name.')
+            named = re.split(r'\s+[-–—]\s+', query, maxsplit=1)
+            match = self.already_have(job, *named) if len(named) == 2 and not job.get('find_identity') else None
+            if match:
+                s.update(ident, status='already_have', match_path=match, error='')
+                return
+            candidates = self.search(query, jobdir)
             s.update(ident,status='needs_selection',candidates=json.dumps(candidates),error='Choose the recording and version to download.')
             return
-        info = self.metadata(job['url'],jobdir)
+        info = self.metadata(job['url'],jobdir,formats_optional=True)
         if info.get('is_live') or info.get('live_status') == 'is_live':
             raise RuntimeError('Live streams are not supported. Paste a finished track URL.')
         if float(info.get('duration') or 0) > 3600:
@@ -466,22 +629,33 @@ class Worker:
         title = info.get('track') or info.get('title') or job['title'] or 'Untitled'
         if not artist and ' - ' in title:
             artist,title = title.split(' - ',1)
+        artist = artist.replace('\uff0c', ',')  # SoundCloud collaborations come back with full-width commas
         artist, title = tidy_track(artist, title)
         source_key = str(info.get('extractor_key') or info.get('extractor'))+':'+str(info.get('id'))
         s.update(ident,title=title,artist=artist,source_key=source_key)
+        problem = download_problem(info, info.get('_warnings', ''))
+        if problem:
+            # The site won't give the full track (label lock or 30-second preview): offer the same song from YouTube.
+            candidates = self.search(f'{artist} - {title}' if artist else title, jobdir)
+            s.update(ident,status='needs_selection',candidates=json.dumps(candidates),hint=problem,error='')
+            return
         for other in s.jobs():
             if other['id'] != ident and other['source_key'] == source_key and (other.get('clip_start'),other.get('clip_end'),other['profile']) == (job.get('clip_start'),job.get('clip_end'),job['profile']) and other['status'] == 'successful' and other['output'] and Path(other['output']).exists():
                 if digest(other['output']) == other['output_hash']:
                     s.update(ident,status='successful',output=other['output'],output_hash=other['output_hash'],source_hash=other['source_hash'],error='Already in your successful library; existing file reused.')
                     return
+        match = self.already_have(job, artist, title)
+        if match:
+            s.update(ident,status='already_have',match_path=match,error='')
+            return
         for name in ('ffmpeg','ffprobe'):
             if not tool(name):
                 raise RuntimeError(name+' is missing. Run scripts/setup.command, then Retry.')
         s.update(ident,status='downloading')
         paths = jobdir/'download-path.txt'
         paths.unlink(missing_ok=True)
-        args = self.yt()+['-f','bestaudio/best','-x','--audio-format','best','--ffmpeg-location',str(Path(tool('ffmpeg')).parent),
-                         '--max-filesize','500M','--no-overwrites','--write-info-json','--newline',
+        args = self.yt()+['-f','bestaudio[format_id!*=preview]/best[format_id!*=preview]','-x','--audio-format','best','--ffmpeg-location',str(Path(tool('ffmpeg')).parent),
+                         '--max-filesize','500M','--no-overwrites','--write-info-json','--write-thumbnail','--convert-thumbnails','jpg','--newline',
                          '--print-to-file','after_move:%(filepath)s',str(paths),'-o',str(jobdir/'source.%(ext)s'),'--',job['url']]
         execute(args,jobdir/'download.log')
         if not paths.exists():
@@ -489,8 +663,34 @@ class Worker:
         source = Path(paths.read_text().strip().splitlines()[-1]).resolve()
         if source.parent != jobdir.resolve() or not source.is_file():
             raise RuntimeError('Invalid downloader output path.')
+        try:
+            fetched = json.loads((jobdir/'source.info.json').read_text())
+        except (OSError, ValueError):
+            fetched = {}
+        if 'preview' in str(fetched.get('format_id', '')).lower():
+            # Safety net: never put a 30-second preview in the library.
+            source.unlink(missing_ok=True)
+            candidates = self.search(f'{artist} - {title}' if artist else title, jobdir)
+            s.update(ident,status='needs_selection',candidates=json.dumps(candidates),hint='preview',error='')
+            return
         s.update(ident,status='processing')
         self.finish(job,source,title,artist,jobdir)
+
+    def add_tags(self, path, jobdir, log):
+        """Album, genre, year, source link and a square cover picture. Never fails the download."""
+        try:
+            info = json.loads((jobdir/'source.info.json').read_text())
+        except (OSError, ValueError):
+            info = {}
+        cover = jobdir/'cover.jpg'
+        thumbnail = jobdir/'source.jpg'
+        try:
+            if thumbnail.is_file() and not cover.is_file():
+                execute([tool('ffmpeg'),'-v','error','-y','-i',str(thumbnail),'-vf',"crop='min(iw,ih)':'min(iw,ih)',scale=600:600",'-q:v','3',str(cover)],log)
+            tags.write(path, tags.details(info), cover if cover.is_file() else None)
+        except Exception as error:  # tags are a bonus; keep the audio
+            with Path(log).open('a') as f:
+                f.write(f'Tagging skipped: {error}\n')
 
     def finish(self,job,source,title,artist,jobdir):
         s,ident = self.store,job['id']
@@ -498,8 +698,10 @@ class Worker:
         log = jobdir/'process.log'
         probe = subprocess.run([tool('ffprobe'),'-v','error','-show_format','-show_streams','-of','json',str(source)],capture_output=True,text=True,check=True,timeout=30)
         data = json.loads(probe.stdout)
-        if not any(stream.get('codec_type') == 'audio' for stream in data.get('streams',[])):
+        audio = next((stream for stream in data.get('streams',[]) if stream.get('codec_type') == 'audio'), None)
+        if not audio:
             raise RuntimeError('The file has no audio stream.')
+        quality = describe_quality(audio, data.get('format',{}))
         execute([tool('ffmpeg'),'-v','error','-xerror','-i',str(source),'-map','0:a:0','-f','null','-'],log)
         original_hash = digest(source)
         cutting = job.get('clip_end') is not None
@@ -509,7 +711,7 @@ class Worker:
             if job['clip_start'] < 0 or job['clip_end'] <= job['clip_start'] or not duration or job['clip_end'] > duration + .05:
                 raise RuntimeError('The requested range is outside this recording. Check the start and end times.')
             trim_args = ['-ss',str(job['clip_start']),'-t',str(job['clip_end']-job['clip_start'])]
-        folder = Path(s.setting('output_dir',str(Path.home()/'Music/DJ Intake Staging'))).expanduser()
+        folder = Path(s.setting('output_dir',str(DEFAULT_OUTPUT))).expanduser()
         folder.mkdir(parents=True,exist_ok=True)
         profile = job['profile']
         ext = ('.wav' if cutting else source.suffix) if profile == 'original' else ('.mp3' if profile == 'mp3' else '.aiff')
@@ -520,6 +722,8 @@ class Worker:
         else:
             codec = ['-c:a','copy'] if profile == 'mp3' and source.suffix == '.mp3' and not cutting else (['-c:a','libmp3lame','-b:a','320k','-ar','44100'] if profile == 'mp3' else (['-c:a','pcm_s16be','-ar','44100'] if profile == 'aiff' else ['-c:a','pcm_s24le']))
             execute([tool('ffmpeg'),'-v','error','-y','-i',str(source),*trim_args,'-map','0:a:0','-vn',*codec,'-metadata','artist='+artist,'-metadata','title='+title,*(['-write_id3v2','1'] if profile == 'aiff' else []),str(temp)],log)
+        if profile in ('mp3','aiff'):
+            self.add_tags(temp, jobdir, log)
         output_hash = digest(temp)
         # Link a completed temporary file on the destination filesystem, never overwrite.
         staged = folder/('.'+ident+'.partial')
@@ -530,6 +734,7 @@ class Worker:
             output = publish_file(staged,folder,base,ext)
         finally:
             staged.unlink(missing_ok=True)
-        manifest = {'request_id':ident,'source_url':job['url'],'original':str(source),'source_sha256':original_hash,'output':str(output),'sha256':output_hash,'artist':artist,'title':title,'profile':profile,'clip_start':job.get('clip_start'),'clip_end':job.get('clip_end'),'probe':data,'quality_note':'Successful means downloaded and checked. Audition before a live set. Transcoding cannot restore stream quality.'}
+        manifest = {'request_id':ident,'source_url':job['url'],'original':str(source),'source_sha256':original_hash,'output':str(output),'sha256':output_hash,'artist':artist,'title':title,'profile':profile,'clip_start':job.get('clip_start'),'clip_end':job.get('clip_end'),'source_quality':quality,'probe':data,'quality_note':'Successful means downloaded and checked. Audition before a live set. Transcoding cannot restore stream quality.'}
         (jobdir/'result.json').write_text(json.dumps(manifest,indent=2,ensure_ascii=False))
-        s.update(ident,status='successful',title=title,artist=artist,output=str(output),output_hash=output_hash,source_hash=original_hash,error='')
+        s.update(ident,status='successful',title=title,artist=artist,output=str(output),output_hash=output_hash,source_hash=original_hash,source_quality=json.dumps(quality),error='')
+        self.library.add(output)

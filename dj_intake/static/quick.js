@@ -23,10 +23,10 @@ function describeInput(raw) {
   if (['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be'].includes(host)) {
     const id = host === 'youtu.be' ? url.pathname.slice(1) : url.searchParams.get('v') || (url.pathname.match(/^\/(shorts|embed)\/([^/]+)/) || [])[2];
     if (id && /^[\w-]{11}$/.test(id)) return ['ok', '✓ YouTube track' + (url.searchParams.has('list') ? ' — only this song, not the playlist' : '')];
-    return ['warn', 'That’s a YouTube playlist or channel. Paste a single video link.'];
+    return ['warn', 'For a playlist, paste it in the library to choose its tracks. Here, paste a single video link.'];
   }
   if (['soundcloud.com', 'www.soundcloud.com', 'on.soundcloud.com'].includes(host)) {
-    return /\/sets\//.test(url.pathname) ? ['warn', 'That’s a SoundCloud playlist. Paste a single track link.'] : ['ok', '✓ SoundCloud track'];
+    return /\/sets\//.test(url.pathname) ? ['warn', 'For a SoundCloud set, paste it in the library to choose its tracks. Here, paste a single track link.'] : ['ok', '✓ SoundCloud track'];
   }
   if (host === 'open.spotify.com') {
     return /\/track\//.test(url.pathname) ? ['ok', 'Spotify track — DJ Intake finds it on YouTube and you pick the recording'] : ['warn', 'Paste a single Spotify track link, not an album or playlist.'];

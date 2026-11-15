@@ -7,6 +7,10 @@
 5. Enable **Trim to timestamps** to cut a section. For example, enter `00:50` and `02:30` for a 1:40 clip. Leave it off for the whole track.
 6. Open **Library → Show in Finder** to locate a finished file. Song-name searches may need you to select a recording in the full library.
 7. To name a song you hear, open **Identify** and click **Set up recognition** once. Apple Shortcuts opens; click **Add Shortcut**. Then play a song on your Mac or nearby and click **Identify song** — Shazam, through Apple Shortcuts, names it and DJ Intake saves it to Saved finds. The first time, macOS asks to use the microphone; choose **Allow**. Nothing downloads until you pick a version. See [RECOGNITION.md](RECOGNITION.md).
+8. Paste a YouTube playlist, SoundCloud set or Bandcamp album to see its tracks and tick the ones you want. Tracks you already have are unticked.
+9. Before downloading, DJ Intake checks your Music folder and download folder. If you already have the song, it asks before downloading it again. If a site only offers a locked track or a 30-second preview, it shows the same song on YouTube for you to pick, plus Beatport and Bandcamp links to buy a high-quality copy. The Library tab flags files that are only about 30 seconds long.
+10. Using Serato? Turn on **Add new downloads to a "DJ Intake" crate** (Library tab or Preferences). DJ Intake updates that one crate while Serato is closed, and the tracks appear the next time you open Serato.
+11. **Send from iPhone:** click **Send from iPhone** under the add box, turn it on and choose **Allow** when macOS asks about iCloud Drive. On your iPhone, open Files › iCloud Drive › Shortcuts, tap **Send to DJ Intake** and add it. Then share any track link to **Send to DJ Intake**; it lands in your queue while DJ Intake is open.
 
 Use sources you're entitled to download. Keep the Mac awake while the queue is working.
 

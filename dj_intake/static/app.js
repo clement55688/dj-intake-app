@@ -9,8 +9,9 @@ const active = job => !['successful', 'failed', 'cancelled'].includes(job.status
 const labels = {
   queued: 'Queued', resolving: 'Finding track', downloading: 'Downloading',
   processing: 'Checking & tagging', needs_selection: 'Pick a recording',
-  successful: 'Downloaded', failed: 'Failed',
+  already_have: 'Already in your library', successful: 'Downloaded', failed: 'Failed',
 };
+const waitingOnYou = job => job.status === 'needs_selection' || job.status === 'already_have';
 
 async function api(path, body) {
   const response = await fetch('/api/' + path, {
@@ -97,6 +98,7 @@ function stageBar(status) {
 // Plain-language summary for common downloader errors; the raw text stays under "Details".
 function friendlyError(text) {
   const t = String(text || '').toLowerCase();
+  if (/drm protected|drm-protected/.test(t)) return 'The site locks this track, so it can’t be downloaded from there. Add the song by name instead (Artist – Title) and pick a recording.';
   if (/video unavailable|this video is unavailable|has been removed|no longer available/.test(t)) return 'This track is unavailable — it may have been removed, made private, or blocked where you are. Try another link.';
   if (/private video|this track is private|\bis private\b/.test(t)) return 'This track is private. Try a public link.';
   if (/http error 404|\bnot found\b/.test(t)) return 'That link doesn’t exist anymore. Check the link or try another source.';
@@ -105,7 +107,50 @@ function friendlyError(text) {
   if (/timed out|timeout|connection|network|resolve host|temporary failure/.test(t)) return 'Couldn’t reach the site. Check your internet connection, then Retry.';
   if (/ffmpeg|ffprobe|yt-dlp is missing|deno/.test(t)) return 'A required audio tool is missing. Run setup again from the install guide, then Retry.';
   if (/one-hour|too long|duration/.test(t)) return 'This recording is longer than DJ Intake’s one-hour limit. Use Trim to timestamps to take a section.';
+  // DJ Intake's own messages are already plain sentences; only raw tool output gets the generic line.
+  if (text && !/error:|\[\w+(:\w+)?\]|traceback|exception|\n/i.test(text)) return text;
   return 'Something went wrong with this request. The details below say why; Retry or remove it.';
+}
+
+function quality(job) {
+  try { return job.source_quality ? JSON.parse(job.source_quality) : null; } catch { return null; }
+}
+const qualityHelp = {
+  lossless: 'Lossless source: the best you can get.',
+  high: 'High-quality source.',
+  streaming: 'Streaming-quality source. Fine on most systems; for a big room, buy a lossless copy.',
+  low: 'Low-quality source. Look for a better copy before a big gig.',
+};
+
+function buyLinks(job) {
+  const query = [job.artist, job.title || job.input].filter(Boolean).join(' ');
+  const line = node('p', 'buy-links meta', 'Want the best quality? Buy it: ');
+  for (const [label, url] of [['Beatport', 'https://www.beatport.com/search?q='], ['Bandcamp', 'https://bandcamp.com/search?item_type=t&q=']]) {
+    const link = node('a', '', label + ' ↗');
+    link.href = url + encodeURIComponent(query);
+    link.target = '_blank';
+    link.rel = 'noopener noreferrer';
+    line.append(link, ' ');
+  }
+  return line;
+}
+
+function alreadyHave(job) {
+  const block = node('div', 'already-have');
+  const parts = (job.match_path || '').split('/');
+  block.append(
+    node('p', 'track-summary', 'You already have this track, so it wasn’t downloaded again.'),
+    node('p', 'track-note path', parts.pop() + '  ·  in ' + (parts.pop() || 'your library')),
+  );
+  const actions = node('div', 'track-actions');
+  const skip = button('Skip — I have it', async () => {
+    const removed = await api('jobs/remove', { id: job.id });
+    toast('Skipped “' + (job.title || job.input) + '”.', { label: 'Undo', run: () => api('jobs/restore', removed) });
+  }, 'pill primary');
+  actions.append(skip, button('Show in Finder ↗', () => api('jobs/reveal-match', { id: job.id })),
+    button('Download anyway', () => api('jobs/keep', { id: job.id })));
+  block.append(actions);
+  return block;
 }
 
 function removeButton(job, label) {
@@ -118,13 +163,13 @@ function removeButton(job, label) {
 function trackCard(job, compact = false) {
   const row = node('article', 'track ' + job.status + (compact ? ' compact' : ''));
   const top = node('div', 'track-top');
-  top.append(node('div', 'track-icon', job.status === 'successful' ? '✓' : job.status === 'failed' ? '!' : job.status === 'needs_selection' ? '?' : '♫'));
+  top.append(node('div', 'track-icon', job.status === 'successful' ? '✓' : job.status === 'failed' ? '!' : job.status === 'needs_selection' ? '?' : job.status === 'already_have' ? '≈' : '♫'));
   const info = node('div', 'track-info');
   const extension = job.output ? job.output.split('.').pop().toUpperCase() : '';
-  info.append(
-    node('h3', '', job.title || job.input),
-    node('div', 'meta', [job.artist, job.source, extension, job.clip_end !== null && job.clip_end !== undefined ? 'Clip '+duration(job.clip_start)+'–'+duration(job.clip_end) : ''].filter(Boolean).join(' · ')),
-  );
+  const source = job.status === 'successful' ? quality(job) : null;
+  const meta = node('div', 'meta', [job.artist, job.source, extension, source ? source.label + ' source' : '', job.clip_end !== null && job.clip_end !== undefined ? 'Clip '+duration(job.clip_start)+'–'+duration(job.clip_end) : ''].filter(Boolean).join(' · '));
+  if (source && qualityHelp[source.tier]) meta.title = qualityHelp[source.tier];
+  info.append(node('h3', '', job.title || job.input), meta);
   top.append(info, node('span', 'status ' + job.status, labels[job.status] || job.status));
   row.append(top);
   const body = node('div', 'track-body');
@@ -141,9 +186,16 @@ function trackCard(job, compact = false) {
     body.append(node('p', 'track-note', job.error));
   }
 
+  if (job.status === 'already_have' && !compact) body.append(alreadyHave(job));
   if (job.status === 'needs_selection') {
     const choices = node('div', 'candidates');
-    choices.append(node('div', 'eyebrow', 'Choose the recording to download'));
+    const site = job.source === 'SoundCloud' ? 'SoundCloud' : 'This site';
+    const why = {
+      locked: site + ' doesn’t allow downloading this track. Here’s the same song on YouTube. Pick the right version:',
+      preview: site + ' only shares a 30-second preview of this track. Here’s the full song on YouTube. Pick the right version:',
+    }[job.hint];
+    choices.append(node('div', 'eyebrow', why ? 'Pick the full song' : 'Choose the recording to download'));
+    if (why) choices.append(node('p', 'track-summary', why), buyLinks(job));
     for (const candidate of JSON.parse(job.candidates || '[]')) {
       const choice = node('div', 'candidate');
       const description = node('div');
@@ -256,6 +308,8 @@ function findCard(find, job) {
       choices.append(row);
     }
     body.append(choices);
+  } else if (job?.status === 'already_have') {
+    body.append(alreadyHave(job));
   } else if (job?.status === 'successful') {
     const actions = node('div', 'track-actions');
     actions.append(button('Show in Finder ↗', () => api('reveal', { id: job.id })));
@@ -272,19 +326,48 @@ function findCard(find, job) {
   return card;
 }
 
+// Library check: files that look like 30-second previews instead of full tracks.
+function libraryCheck(previews) {
+  const nudge = $('#library-nudge');
+  nudge.hidden = tab === 'successful' || !previews.length;
+  nudge.textContent = (previews.length === 1 ? '1 file in your library looks' : previews.length + ' files in your library look') + ' like a 30-second preview — check it →';
+  const panel = $('#library-check');
+  panel.hidden = tab !== 'successful' || !previews.length;
+  if (panel.hidden) return;
+  panel.replaceChildren(node('div', 'eyebrow', 'Library check'),
+    node('p', '', previews.length === 1 ? 'This file is only about 30 seconds long — probably a preview, not the full track.' : 'These files are only about 30 seconds long — probably previews, not full tracks.'));
+  for (const item of previews) {
+    const row = node('div', 'library-check-row');
+    const text = node('div');
+    text.append(node('p', '', item.name), node('div', 'meta', duration(item.seconds) + ' long'));
+    const actions = node('div', 'track-actions');
+    actions.append(
+      button('Find the full song', async () => {
+        await api('library/replace', { path: item.path });
+        toast('Searching for the full version. Pick it in the queue.');
+        setTab('queue');
+      }, 'pill primary'),
+      button('Show in Finder ↗', () => api('library/reveal', { path: item.path })),
+      button('It’s fine', () => api('library/ok', { path: item.path })),
+    );
+    row.append(text, actions);
+    panel.append(row);
+  }
+}
+
 // The small glass card in the hero: what is happening right now.
 function liveCard(queue, finds, completed) {
   const card = $('#live-card');
-  const working = queue.find(job => job.status !== 'queued' && job.status !== 'needs_selection') || queue[0];
+  const working = queue.find(job => job.status !== 'queued' && !waitingOnYou(job)) || queue[0];
   const latestFind = [...finds].sort((a, b) => b.found_at - a.found_at)[0];
   let content = null;
   if (tab === 'finds' && latestFind) content = ['Last identified', latestFind.name, 'Spotted ' + new Date(latestFind.found_at * 1000).toLocaleString()];
   else if (tab === 'successful' && completed[0]) content = ['Latest download', completed[0].title || completed[0].input, [completed[0].artist, completed[0].output?.split('.').pop().toUpperCase()].filter(Boolean).join(' · ')];
-  else if (tab === 'queue' && working) content = [working.status === 'needs_selection' ? 'Your turn' : 'Now in the queue', working.title || working.input, (labels[working.status] || working.status) + (queue.length > 1 ? ' · ' + (queue.length - 1) + ' more waiting' : '')];
+  else if (tab === 'queue' && working) content = [waitingOnYou(working) ? 'Your turn' : 'Now in the queue', working.title || working.input, (labels[working.status] || working.status) + (queue.length > 1 ? ' · ' + (queue.length - 1) + ' more waiting' : '')];
   else if (tab === 'queue' && completed[0]) content = ['Last finished', completed[0].title || completed[0].input, 'Ready in your staging folder'];
   card.hidden = !content;
   if (!content) return;
-  card.classList.toggle('idle', !(tab === 'queue' && working && working.status !== 'needs_selection'));
+  card.classList.toggle('idle', !(tab === 'queue' && working && !waitingOnYou(working)));
   $('#live-label').textContent = content[0];
   $('#live-title').textContent = content[1];
   $('#live-detail').textContent = content[2];
@@ -311,6 +394,11 @@ function render(force = false) {
   const nudge = $('#failed-nudge');
   nudge.hidden = tab === 'failed' || !failed.length;
   nudge.textContent = failed.length + (failed.length === 1 ? ' request needs' : ' requests need') + ' another try — see why and retry →';
+
+  libraryCheck((state.library && state.library.previews) || []);
+  if ($('#phone-dialog').open) phoneStatus();
+  const serato = state.serato || {};
+  $('#serato-offer').hidden = tab !== 'successful' || !serato.available || serato.decided;
 
   const recent = $('#recent-downloads');
   recent.hidden = tab !== 'queue' || !completed.length;
@@ -378,6 +466,15 @@ for (const element of document.querySelectorAll('[data-tab]')) {
   element.onclick = () => setTab(element.dataset.tab, element.classList.contains('stat') ? $('#list').parentElement : null);
 }
 $('#failed-nudge').onclick = () => setTab('failed');
+$('#library-nudge').onclick = () => setTab('successful');
+$('#serato-on').onclick = async () => {
+  try { await api('serato', { enabled: true }); toast('On. New downloads go into the “DJ Intake” crate — open Serato to see them.'); await refresh(); }
+  catch (error) { toast(error.message); }
+};
+$('#serato-no').onclick = async () => {
+  try { await api('serato', { enabled: false }); toast('OK. You can turn this on later in Preferences.'); await refresh(); }
+  catch (error) { toast(error.message); }
+};
 $('#clear-failed').onclick = async () => {
   try {
     const { ids } = await api('jobs/clear-failed', {});
@@ -396,6 +493,102 @@ onScroll();
 $('#hero-identify').onclick = () => { setTab('finds'); $('#identify-song').click(); };
 $('#trim-enabled').onchange = () => { $('#clip-fields').hidden = !$('#trim-enabled').checked; };
 
+function playlistKind(url) {
+  const host = url.hostname.toLowerCase();
+  if (['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com'].includes(host) && url.pathname === '/playlist' && url.searchParams.get('list')) return 'youtube';
+  if (['soundcloud.com', 'www.soundcloud.com', 'm.soundcloud.com'].includes(host) && /^\/[^/]+\/sets\/[^/]+\/?$/.test(url.pathname)) return 'soundcloud';
+  if (host.endsWith('.bandcamp.com') && url.pathname.startsWith('/album/')) return 'bandcamp';
+  return null;
+}
+function asPlaylist(raw) {
+  const lines = raw.split('\n').map(line => line.trim()).filter(Boolean);
+  if (lines.length !== 1) return null;
+  try { const url = new URL(lines[0].includes('://') ? lines[0] : 'https://' + lines[0]); return playlistKind(url) ? url.href : null; }
+  catch { return null; }
+}
+
+let playlist = null;
+async function openPlaylist(link) {
+  const add = $('#add');
+  add.disabled = true;
+  toast('Opening the playlist…');
+  try {
+    playlist = await api('playlist', { url: link });
+  } finally { add.disabled = false; }
+  $('#toast').hidden = true;
+  $('#playlist-title').textContent = playlist.title;
+  const have = playlist.tracks.filter(track => track.have).length;
+  $('#playlist-help').textContent = playlist.tracks.length + ' track' + (playlist.tracks.length === 1 ? '' : 's')
+    + (have ? ' · ' + have + ' already in your library (unticked)' : '') + (playlist.more ? ' · showing the first 100' : '');
+  const list = $('#playlist-list');
+  list.replaceChildren(...playlist.tracks.map((track, index) => {
+    const row = node('label', 'playlist-row' + (track.have ? ' have' : ''));
+    const box = node('input');
+    box.type = 'checkbox';
+    box.checked = !track.have;
+    box.dataset.index = index;
+    box.onchange = updatePlaylistCount;
+    const text = node('span');
+    text.append(node('span', 'playlist-name', track.title), node('span', 'meta', [track.artist, track.duration ? duration(track.duration) : '', track.have ? 'You have this' : ''].filter(Boolean).join(' · ')));
+    row.append(box, text);
+    return row;
+  }));
+  updatePlaylistCount();
+  $('#playlist-dialog').showModal();
+}
+function chosenTracks() {
+  return [...document.querySelectorAll('#playlist-list input:checked')].map(box => playlist.tracks[Number(box.dataset.index)]);
+}
+function updatePlaylistCount() {
+  const count = chosenTracks().length;
+  $('#playlist-add').textContent = count ? 'Add ' + count + ' track' + (count === 1 ? '' : 's') : 'Choose tracks';
+  $('#playlist-add').disabled = !count;
+}
+$('#playlist-all').onclick = () => { document.querySelectorAll('#playlist-list input').forEach(box => { box.checked = true; }); updatePlaylistCount(); };
+$('#playlist-none').onclick = () => { document.querySelectorAll('#playlist-list input').forEach(box => { box.checked = false; }); updatePlaylistCount(); };
+$('#playlist-cancel').onclick = () => $('#playlist-dialog').close();
+$('#playlist-form').onsubmit = async event => {
+  event.preventDefault();
+  const tracks = chosenTracks();
+  $('#playlist-add').disabled = true;
+  try {
+    let added = 0;
+    for (let i = 0; i < tracks.length; i += 50) {
+      const result = await api('jobs', { input: tracks.slice(i, i + 50).map(track => track.url).join('\n') });
+      added += result.added.length;
+    }
+    $('#playlist-dialog').close();
+    $('#input').value = '';
+    showInputKind();
+    toast(added + ' track' + (added === 1 ? '' : 's') + ' added to your queue.');
+    setTab('queue');
+    await refresh();
+  } catch (error) { toast(error.message); }
+  finally { updatePlaylistCount(); }
+};
+
+// Send from iPhone: setup dialog and live status.
+function phoneStatus() {
+  const phone = state?.phone || {};
+  const text = !phone.enabled ? 'Off.'
+    : phone.status === 'no-icloud' ? 'iCloud Drive for Shortcuts isn’t on this Mac. Turn on iCloud Drive in System Settings › Apple Account › iCloud.'
+    : phone.status === 'permission' ? 'Waiting for permission. Look for the macOS prompt and choose Allow.'
+    : phone.status === 'checking' ? 'Checking iCloud Drive…'
+    : phone.status === 'error' ? 'Couldn’t read iCloud Drive: ' + (phone.error || 'unknown error')
+    : phone.status === 'ok' ? 'On. Watching iCloud Drive › Shortcuts › DJ Intake Inbox' + (phone.added ? ' · ' + phone.added + ' received so far' : '') + '.'
+    : 'Starting…';
+  $('#phone-status').textContent = text;
+  $('#phone-toggle').textContent = phone.enabled ? 'Turn off' : 'Turn on';
+  $('#phone-reveal').hidden = !(phone.enabled && phone.status === 'ok');
+}
+$('#phone-open').onclick = () => { phoneStatus(); $('#phone-dialog').showModal(); };
+$('#phone-close').onclick = () => $('#phone-dialog').close();
+$('#phone-reveal').onclick = () => api('phone/reveal', {}).catch(error => toast(error.message));
+$('#phone-toggle').onclick = async () => {
+  try { await api('phone', { enabled: !state.phone?.enabled }); await refresh(); phoneStatus(); }
+  catch (error) { toast(error.message); }
+};
+
 // Tell people, as they type, whether DJ Intake can use what they pasted.
 function describeInput(raw) {
   const lines = raw.split('\n').map(line => line.trim()).filter(Boolean);
@@ -407,6 +600,7 @@ function describeInput(raw) {
   let url;
   try { url = new URL(text); } catch { return ['warn', 'That doesn’t look like a complete link.']; }
   const host = url.hostname.toLowerCase();
+  if (playlistKind(url)) return ['ok', 'Playlist — click Add to choose which tracks you want'];
   if (['youtube.com', 'www.youtube.com', 'm.youtube.com', 'music.youtube.com', 'youtu.be'].includes(host)) {
     const id = host === 'youtu.be' ? url.pathname.slice(1) : url.searchParams.get('v') || (url.pathname.match(/^\/(shorts|embed)\/([^/]+)/) || [])[2];
     if (id && /^[\w-]{11}$/.test(id)) return ['ok', '✓ YouTube track' + (url.searchParams.has('list') ? ' — only this song, not the playlist' : '')];
@@ -469,6 +663,11 @@ $('#find-form').onsubmit = async event => {
 };
 $('#add-form').onsubmit = async event => {
   event.preventDefault();
+  const list = asPlaylist($('#input').value);
+  if (list) {
+    try { await openPlaylist(list); } catch (error) { toast(error.message); }
+    return;
+  }
   $('#add').disabled = true;
   try {
     const result = await api('jobs', { input: $('#input').value, clip_start: $('#trim-enabled').checked ? $('#clip-start').value : '', clip_end: $('#trim-enabled').checked ? $('#clip-end').value : '' });
@@ -497,6 +696,14 @@ $('#settings-open').onclick = () => {
   $('#output-dir').value = state.settings.output_dir;
   $('#profile').value = state.settings.profile;
   $('#update-check').checked = state.update_check !== false;
+  const serato = state.serato || {};
+  $('#serato-pref').hidden = !serato.available;
+  $('#serato-crate').checked = !!serato.enabled;
+  $('#serato-help').textContent = serato.enabled && serato.status === 'waiting'
+    ? 'Serato is open. DJ Intake will update the “DJ Intake” crate when you close it; new tracks appear the next time you open Serato.'
+    : serato.enabled && serato.updated
+      ? 'The “DJ Intake” crate lists ' + serato.tracks + ' track' + (serato.tracks === 1 ? '' : 's') + '. New downloads appear the next time you open Serato.'
+      : 'Serato rewrites its crates while it’s open, so DJ Intake updates this one crate while Serato is closed. New tracks show up the next time you open Serato. Your other crates are never touched.';
   $('#settings').showModal();
 };
 $('#pick-folder').onclick = async () => {
@@ -514,6 +721,7 @@ $('#settings-form').onsubmit = async event => {
   event.preventDefault();
   try {
     await api('settings', { output_dir: $('#output-dir').value, profile: $('#profile').value, update_check: $('#update-check').checked });
+    if (state.serato?.available && $('#serato-crate').checked !== !!state.serato.enabled) await api('serato', { enabled: $('#serato-crate').checked });
     $('#settings').close();
     toast('Preferences saved for new requests');
     await refresh();

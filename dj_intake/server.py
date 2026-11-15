@@ -12,8 +12,20 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlparse
 from .core import ROOT, Store, Worker, tool
+from .library import name_guesses
 from .recognition import identify, open_setup
+from .serato import CrateSync
+from .inbox import Inbox
 from .updates import VERSION, UpdateChecker, installed_copy, latest_release, start_install
+
+
+def reveal(path):
+    """Select a file in Finder."""
+    if sys.platform != 'darwin':
+        raise ValueError('Show in Finder is available on macOS.')
+    if not Path(path).is_file():
+        raise ValueError('That file has moved or been deleted.')
+    subprocess.Popen(['open', '-R', str(path)])
 
 
 class Server(ThreadingHTTPServer):
@@ -38,6 +50,11 @@ def start(home, port=8765, browser=True):
         print('Already running: '+url)
         return
     store = Store(home)
+    worker = Worker(store)
+    library = worker.library
+    library.refresh()
+    crate = CrateSync(store)
+    inbox = Inbox(store)
     token = secrets.token_urlsafe(32)
     folder_picker = threading.Lock()
     recognition = threading.Lock()
@@ -75,8 +92,10 @@ def start(home, port=8765, browser=True):
                 if path == '/api/settings':
                     return self.reply(200, {'output_dir': store.setting('output_dir', str(Path.home()/'Music/DJ Intake Staging'))})
                 if path == '/api/state':
+                    library.ensure_fresh()
                     return self.reply(200,{'jobs':store.jobs(),'finds':store.finds(),'settings':{'output_dir':store.setting('output_dir',str(Path.home()/'Music/DJ Intake Staging')),'profile':store.setting('profile','mp3')},'tools':{n:bool(tool(n)) for n in ('yt-dlp','ffmpeg','ffprobe')},'version':VERSION,
-                        'update':updates.status(update_enabled()),'can_update':can_update,'update_check':update_enabled()})
+                        'update':updates.status(update_enabled()),'can_update':can_update,'update_check':update_enabled(),
+                        'library':library.summary(store.library_ok()),'serato':crate.summary(),'phone':inbox.summary()})
                 return self.reply(404,{'error':'Not found'})
             assets = {'/':'index.html','/style.css':'style.css','/app.js':'app.js','/app-icon.png':'app-icon.png','/quick':'quick.html','/quick.js':'quick.js','/hero.jpg':'hero.jpg','/fonts/Geist.woff2':'fonts/Geist.woff2','/fonts/GeistMono.woff2':'fonts/GeistMono.woff2','/recognition-setup':'RECOGNITION.md'}
             if path not in assets:
@@ -145,6 +164,48 @@ def start(home, port=8765, browser=True):
                     return self.reply(200, {'ok': True})
                 if path == '/api/jobs/clear-failed':
                     return self.reply(200, {'ids': store.clear_failed()})
+                if path == '/api/playlist':
+                    if not isinstance(body.get('url'), str):
+                        raise ValueError('Paste a playlist link.')
+                    return self.reply(200, worker.playlist(body['url']))
+                if path == '/api/phone':
+                    store.set_setting('phone_inbox', 'on' if body.get('enabled') is True else 'off')
+                    return self.reply(200, inbox.summary())
+                if path == '/api/phone/reveal':
+                    if not inbox.summary()['enabled'] or inbox.state['status'] != 'ok':
+                        raise ValueError('Turn on Send from iPhone first.')
+                    reveal(inbox.root / 'Send to DJ Intake.shortcut')
+                    return self.reply(200, {'ok': True})
+                if path == '/api/serato':
+                    store.set_setting('serato_crate', 'on' if body.get('enabled') is True else 'off')
+                    crate.written = None
+                    return self.reply(200, crate.summary())
+                if path == '/api/jobs/keep':
+                    store.keep_duplicate(body['id'])
+                    return self.reply(200, {'ok': True})
+                if path == '/api/jobs/reveal-match':
+                    row = store.get(body['id'])
+                    if row['status'] != 'already_have' or not row.get('match_path'):
+                        raise ValueError('This request isn’t pointing at a file in your library.')
+                    reveal(row['match_path'])
+                    return self.reply(200, {'ok': True})
+                if path in ('/api/library/reveal', '/api/library/ok', '/api/library/replace'):
+                    # Only files the preview check flagged; never an arbitrary path.
+                    flagged = {item['path']: item for item in library.previews(store.library_ok())}
+                    item = flagged.get(body.get('path'))
+                    if not item:
+                        raise ValueError('That file is no longer flagged. Refresh the page.')
+                    if path == '/api/library/reveal':
+                        reveal(item['path'])
+                    elif path == '/api/library/ok':
+                        store.mark_library_ok(item['path'])
+                    else:
+                        guesses = name_guesses(item['path'])
+                        artist, title = guesses[0] if guesses else ('', Path(item['path']).stem)
+                        job = store.add(f'{artist.strip()} - {title.strip()}' if artist.strip() else title.strip())
+                        store.mark_library_ok(item['path'])
+                        return self.reply(200, job)
+                    return self.reply(200, {'ok': True})
                 if path == '/api/retry':
                     store.retry(body['id'])
                 elif path == '/api/finds/rename':
@@ -199,10 +260,7 @@ def start(home, port=8765, browser=True):
                     row = store.get(body['id'])
                     if row['status'] != 'successful' or not row.get('output') or not Path(row['output']).is_file():
                         raise ValueError('The output file is missing. Check its staging folder.')
-                    if sys.platform == 'darwin':
-                        subprocess.Popen(['open','-R',row['output']])
-                    else:
-                        raise ValueError('Show in Finder is available on macOS.')
+                    reveal(row['output'])
                 elif path == '/api/quit':
                     threading.Timer(.3,self.server.shutdown).start()
                 elif path == '/api/folder':
@@ -220,8 +278,9 @@ def start(home, port=8765, browser=True):
     server = Server(('127.0.0.1',port),Handler)
     url = f'http://127.0.0.1:{server.server_port}'
     (home/'app-url.txt').write_text(url)
-    worker = Worker(store)
     threading.Thread(target=worker.run,daemon=True).start()
+    threading.Thread(target=crate.loop,args=(worker.stop,),daemon=True).start()
+    threading.Thread(target=inbox.loop,args=(worker.stop,),daemon=True).start()
     print('DJ Intake: '+url,flush=True)
     if browser:
         threading.Timer(.5,lambda:webbrowser.open(url)).start()

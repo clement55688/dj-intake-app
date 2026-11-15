@@ -46,7 +46,7 @@
             <span class="submit-wrap"><kbd>⌘↩</kbd><button class="pill primary" type="submit" id="add">Add to queue <span aria-hidden="true">↗</span></button></span>
           </div>
         </form>
-        <div class="composer-note">One track per line. Playlists aren’t supported — paste single tracks. <button type="button" class="link" id="composer-help">How it works</button></div>
+        <div class="composer-note">One track per line, or paste a playlist, SoundCloud set or Bandcamp album and choose its tracks. <button type="button" class="link" id="composer-help">How it works</button> · <button type="button" class="link" id="phone-open">Send from iPhone</button></div>
       </section>
       <div class="live-card" id="live-card" hidden>
         <span class="live-label"><span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span><span id="live-label"></span></span>
@@ -86,6 +86,9 @@
 
   <div id="tools-warning" class="notice" hidden></div>
   <button id="failed-nudge" class="notice nudge" hidden></button>
+  <button id="library-nudge" class="notice nudge" hidden></button>
+  <section id="library-check" class="notice library-check" hidden aria-live="polite"></section>
+  <section id="serato-offer" class="notice library-check" hidden><div class="eyebrow">Serato found</div><p>Put every new download in a “DJ Intake” crate automatically, so you don’t have to import files by hand?</p><div class="track-actions"><button class="pill primary" id="serato-on">Turn on</button><button class="pill ghost" id="serato-no">No thanks</button></div></section>
 
   <section id="recent-downloads" class="list-section recent-section" hidden>
     <div class="list-heading"><div><span class="eyebrow">Just finished</span><h2>Recently downloaded</h2></div><div class="recent-heading-actions"><span class="count-pill" id="download-total">0 saved</span><button id="view-downloads" class="pill ghost">View library ↗</button></div></div>
@@ -105,7 +108,9 @@
 </main>
 <div id="toast" role="status" hidden></div>
 
-<dialog id="settings"><form id="settings-form"><div class="eyebrow">Make it yours</div><h2>Preferences</h2><label for="output-dir">Staging folder</label><div class="folder-row"><input id="output-dir" required><button type="button" class="pill ghost" id="pick-folder">Choose folder…</button></div><p class="help">Finished files land here. Keep a stable path after importing into your DJ software.</p><label for="profile">Output format</label><select id="profile"><option value="mp3">MP3 · 320 kbps compatibility copy</option><option value="aiff">AIFF · 16-bit / 44.1 kHz</option><option value="original">Original · preserve downloaded format</option></select><p class="help">Conversion cannot restore stream quality. Acquired originals are kept separately. Original mode preserves existing tags.</p><label class="check-row"><input id="update-check" type="checkbox"> Check GitHub for updates</label><p class="help">DJ Intake asks GitHub for the latest version number a few times a day. Nothing else is sent.</p><div class="dialog-actions"><button type="button" class="pill ghost quit" id="quit-app">Quit app</button><button type="button" class="pill ghost" id="settings-close">Cancel</button><button class="pill primary">Save preferences</button></div></form></dialog>
+<dialog id="playlist-dialog" aria-labelledby="playlist-title"><form id="playlist-form" method="dialog"><div class="eyebrow" id="playlist-kicker">Playlist</div><h2 id="playlist-title">Choose tracks</h2><p class="help" id="playlist-help"></p><div class="playlist-tools"><button type="button" class="link" id="playlist-all">Select all</button><button type="button" class="link" id="playlist-none">Select none</button></div><div id="playlist-list" class="playlist-list"></div><div class="dialog-actions"><button type="button" class="pill ghost" id="playlist-cancel">Cancel</button><button class="pill primary" id="playlist-add">Add tracks</button></div></form></dialog>
+<dialog id="phone-dialog" aria-labelledby="phone-title"><div class="eyebrow">New</div><h2 id="phone-title">Send tracks from your iPhone</h2><ol class="phone-steps"><li><b>Turn it on here.</b> macOS asks once to let DJ Intake use iCloud Drive. Choose <b>Allow</b>.</li><li><b>Add the shortcut on your iPhone.</b> Open Files › iCloud Drive › Shortcuts and tap “Send to DJ Intake”, then Add Shortcut. Or AirDrop it from your Mac.</li><li><b>Share any track.</b> In YouTube, SoundCloud, Spotify or Safari, tap Share › Send to DJ Intake. It lands in your queue within a minute while DJ Intake is open.</li></ol><p class="help">Uses your own iCloud Drive (on with the same Apple Account on both). No account or server in between.</p><p class="phone-status" id="phone-status" role="status"></p><div class="dialog-actions"><button type="button" class="pill ghost" id="phone-reveal" hidden>Show shortcut in Finder ↗</button><button type="button" class="pill ghost" id="phone-close">Close</button><button type="button" class="pill primary" id="phone-toggle">Turn on</button></div></dialog>
+<dialog id="settings"><form id="settings-form"><div class="eyebrow">Make it yours</div><h2>Preferences</h2><label for="output-dir">Staging folder</label><div class="folder-row"><input id="output-dir" required><button type="button" class="pill ghost" id="pick-folder">Choose folder…</button></div><p class="help">Finished files land here. Keep a stable path after importing into your DJ software.</p><label for="profile">Output format</label><select id="profile"><option value="mp3">MP3 · 320 kbps compatibility copy</option><option value="aiff">AIFF · 16-bit / 44.1 kHz</option><option value="original">Original · preserve downloaded format</option></select><p class="help">Conversion cannot restore stream quality. Acquired originals are kept separately. Original mode preserves existing tags.</p><label class="check-row"><input id="update-check" type="checkbox"> Check GitHub for updates</label><p class="help">DJ Intake asks GitHub for the latest version number a few times a day. Nothing else is sent.</p><div id="serato-pref" hidden><label class="check-row"><input id="serato-crate" type="checkbox"> Add new downloads to a “DJ Intake” crate in Serato</label><p class="help" id="serato-help">Serato rewrites its crates while it’s open, so DJ Intake updates this one crate while Serato is closed. New tracks show up the next time you open Serato. Your other crates are never touched.</p></div><div class="dialog-actions"><button type="button" class="pill ghost quit" id="quit-app">Quit app</button><button type="button" class="pill ghost" id="settings-close">Cancel</button><button class="pill primary">Save preferences</button></div></form></dialog>
 <dialog id="find-editor"><form id="find-form">
 <div class="eyebrow">Saved finds</div><h2 id="find-editor-title"></h2>
 <label for="find-value" id="find-label"></label><input id="find-value" required autocomplete="off">
@@ -132,11 +137,12 @@
     <span class="step-num">01</span><h2 id="tutorial-title">Add a track</h2>
     <p>Paste a link into <strong>Add to your library</strong> and click <strong>Add to queue</strong>. One track per line.</p>
     <ul class="sources-list">
-      <li><b>YouTube</b><span>a single video or music.youtube.com link — not a playlist</span></li>
+      <li><b>YouTube</b><span>a single video or music.youtube.com link</span></li>
       <li><b>SoundCloud</b><span>a single track link</span></li>
       <li><b>Bandcamp</b><span>a single track link (…bandcamp.com/track/…)</span></li>
       <li><b>Spotify</b><span>a track link — we look it up and you pick a recording</span></li>
       <li><b>Song name</b><span>just type <code>Artist — Song</code></span></li>
+      <li><b>Playlists</b><span>a YouTube playlist, SoundCloud set or Bandcamp album — tick the tracks you want</span></li>
     </ul>
     <p class="tip">Only need part of it? Tick <strong>Trim to timestamps</strong> and enter a start and end, like 00:50 → 02:30.</p>
   </section>

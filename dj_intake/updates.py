@@ -15,7 +15,7 @@ import time
 from pathlib import Path
 from urllib.request import Request, urlopen
 
-VERSION = '0.4.4'
+VERSION = '0.5.0'
 REPO = 'clement55688/dj-intake-app'
 API = f'https://api.github.com/repos/{REPO}/releases/latest'
 CHECK_EVERY = 6 * 3600
